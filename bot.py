@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.dispatcher.filters import CommandStart
+from aiogram.filters import CommandStart
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.fsm.storage.memory import MemoryStorage
 
@@ -172,3 +172,4 @@ async def main():
 
 
 asyncio.run(main())
+
