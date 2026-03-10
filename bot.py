@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.filters import CommandStart
+from aiogram.dispatcher.filters import CommandStart
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.fsm.storage.memory import MemoryStorage
 
@@ -61,8 +61,8 @@ confirm_keyboard = ReplyKeyboardMarkup(
 
 # ================= START =================
 
-@dp.message(CommandStart())
-async def start_handler(message: types.Message):
+@dp.message_handler(commands=['start'])
+async def start(message: types.Message):
 
     save_event(message.from_user.id, message.from_user.username, "start")
 
@@ -168,6 +168,7 @@ async def main_handler(message: types.Message):
 async def main():
     print("🔥 SYSTEM WITH ACTIVATION CHANNEL RUNNING...")
     await dp.start_polling(bot)
+
 
 
 asyncio.run(main())
