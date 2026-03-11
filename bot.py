@@ -8,7 +8,7 @@ from telegram.ext import (
     filters,
 )
 
-BOT_TOKEN = os.getenv("8605977902:AAHFHDzeqPuQJW-WDEC3S7qSjosj1TpP8Mc")
+BOT_TOKEN = ("8605977902:AAHFHDzeqPuQJW-WDEC3S7qSjosj1TpP8Mc")
 
 ROBO_LINK = "https://my.roboforex.com/en/?a=omawl"
 EXNESS_LINK = "https://one.exnessonelink.com/a/zi8w32eknv"
@@ -124,3 +124,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
