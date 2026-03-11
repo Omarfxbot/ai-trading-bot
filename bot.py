@@ -4,9 +4,8 @@ import os
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.filters import CommandStart
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
 
 
 BOT_TOKEN = "8605977902:AAFcABeU2bbnDJenJ0qLgpvBbOceWC3GzsU"
@@ -172,4 +171,5 @@ async def main():
 
 
 asyncio.run(main())
+
 
