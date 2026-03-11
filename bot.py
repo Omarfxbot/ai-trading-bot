@@ -1,65 +1,89 @@
 import os
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    MessageHandler,
+    CallbackQueryHandler,
     ContextTypes,
-    filters,
 )
 
-# خليه ياخذ التوكن من Environment Variables
 BOT_TOKEN = ("8605977902:AAFcABeU2bbnDJenJ0qLgpvBbOceWC3GzsU")
 
-# روابط الإحالة
 ROBO_LINK = "https://my.roboforex.com/en/?a=omawl"
 EXNESS_LINK = "https://one.exnessonelink.com/a/zi8w32eknv"
+VIP_CHANNEL = "https://t.me/+_woSe4hCzCMzZGE8"
 
 
-# رسالة /start
+# ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     keyboard = [
-        ["🚀 ابدأ ب $10 + بونص $30"],
-        ["🏦 حساب احترافي طويل المدى"],
+        [InlineKeyboardButton("🚀 ابدأ ب $10 + بونص $30", callback_data="robo")],
+        [InlineKeyboardButton("🏦 حساب احترافي طويل المدى", callback_data="exness")],
     ]
 
-    reply_markup = ReplyKeyboardMarkup(
-        keyboard,
-        resize_keyboard=True
-    )
-
     await update.message.reply_text(
-        "🔥 مرحبا بك في نظام Omar Swing VIP\n\n"
+        "🔥 مرحبا بك في Omar Swing VIP\n\n"
         "نظام تداول منظم بخطة واضحة وإدارة رأس مال صارمة.\n\n"
         "اختر المسار المناسب لك:",
-        reply_markup=reply_markup,
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
-# معالجة ضغط الأزرار
+# ===== HANDLE BUTTONS =====
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
+    query = update.callback_query
+    await query.answer()
 
-    if "بونص" in text:
-        await update.message.reply_text(
+    if query.data == "robo":
+        keyboard = [
+            [InlineKeyboardButton("📌 سجل الآن عبر RoboForex", url=ROBO_LINK)],
+            [InlineKeyboardButton("✅ تم التسجيل", callback_data="done")],
+        ]
+
+        await query.edit_message_text(
             "🔥 اختيار ممتاز!\n\n"
-            "سجل الآن واستفد من بونص 30$:\n\n"
-            f"{ROBO_LINK}"
+            "سجل الآن واستفد من بونص 30$.\n\n"
+            "بعد التسجيل اضغط على 'تم التسجيل'.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
         )
 
-    elif "احترافي" in text:
-        await update.message.reply_text(
+    elif query.data == "exness":
+        keyboard = [
+            [InlineKeyboardButton("📌 افتح حساب Exness", url=EXNESS_LINK)],
+            [InlineKeyboardButton("✅ تم التسجيل", callback_data="done")],
+        ]
+
+        await query.edit_message_text(
             "🏦 حساب احترافي طويل المدى\n\n"
-            "افتح حسابك عبر الرابط التالي:\n\n"
-            f"{EXNESS_LINK}"
+            "افتح حسابك عبر الرابط التالي.\n\n"
+            "بعد التسجيل اضغط على 'تم التسجيل'.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+    elif query.data == "done":
+        keyboard = [
+            [InlineKeyboardButton("🔐 دخول القناة VIP", url=VIP_CHANNEL)]
+        ]
+
+        await query.edit_message_text(
+            "🎯 ممتاز!\n\n"
+            "الآن يمكنك الدخول إلى القناة الخاصة:\n\n"
+            "اضغط الزر أسفل 👇",
+            reply_markup=InlineKeyboardMarkup(keyboard),
         )
 
 
+# ===== MAIN =====
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
+    app.add_handler(CallbackQueryHandler(handle_buttons))
 
     print("Bot is running...")
     app.run_polling()
