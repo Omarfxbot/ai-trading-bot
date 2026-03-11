@@ -3,35 +3,52 @@ from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    ContextTypes,
     MessageHandler,
+    ContextTypes,
     filters,
 )
 
 BOT_TOKEN = ("8605977902:AAHFHDzeqPuQJW-WDEC3S7qSjosj1TpP8Mc")
 
 
-# ========= START =========
+# ========================
+# /start
+# ========================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         ["🚀 ابدأ ب 10$ + بونص 30$"],
         ["🏦 حساب احترافي طويل المدى"]
     ]
 
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True
+    )
 
     await update.message.reply_text(
         "🔥 مرحبا بك في Omar Swing VIP\n\n"
+        "نظام تداول منظم بخطة واضحة وإدارة رأس مال صارمة.\n\n"
         "اختر المسار المناسب لك:",
         reply_markup=reply_markup
     )
 
-# ========= HANDLER =========
+    context.user_data["step"] = "choose_platform"
+
+
+# ========================
+# معالجة الأزرار
+# ========================
+
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
+    step = context.user_data.get("step")
 
-    # ===== RoboForex =====
-    if "10$" in text:
+    # ---------------------------------
+    # اختيار RoboForex
+    # ---------------------------------
+    if text == "🚀 ابدأ ب 10$ + بونص 30$" and step == "choose_platform":
+
         keyboard = [["✅ سجلت"]]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -43,21 +60,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
 
-    # ===== Exness =====
-    elif "احترافي" in text:
-        keyboard = [["✅ فتحت الحساب"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        context.user_data["step"] = "waiting_registration"
+        return
 
-        await update.message.reply_text(
-            "🏦 حساب احترافي طويل المدى\n\n"
-            "افتح حسابك عبر الرابط التالي:\n"
-            "https://one.exnessonelink.com/a/zi8w32eknv\n\n"
-            "بعد فتح الحساب اضغط (فتحت الحساب)",
-            reply_markup=reply_markup
-        )
+    # ---------------------------------
+    # تأكيد التسجيل
+    # ---------------------------------
+    if text == "✅ سجلت" and step == "waiting_registration":
 
-    # ===== CONFIRM ROBO =====
-    elif "سجلت" in text:
         await update.message.reply_text(
             "🎉 ممتاز!\n\n"
             "هذا رابط قناة VIP الخاصة:\n"
@@ -65,24 +75,46 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=ReplyKeyboardRemove()
         )
 
-    # ===== CONFIRM EXNESS =====
-    elif "فتحت الحساب" in text:
+        context.user_data["step"] = "done"
+        return
+
+    # ---------------------------------
+    # اختيار Exness
+    # ---------------------------------
+    if text == "🏦 حساب احترافي طويل المدى" and step == "choose_platform":
+
         await update.message.reply_text(
-            "🎉 رائع!\n\n"
-            "هذا رابط قناة VIP الخاصة:\n"
-            "https://t.me/+_woSe4hCzCMzZGE8",
+            "🏦 حساب احترافي طويل المدى\n\n"
+            "افتح حسابك عبر الرابط التالي:\n"
+            "https://one.exnessonelink.com/a/zi8w32eknv",
             reply_markup=ReplyKeyboardRemove()
         )
 
-# ========= MAIN =========
+        context.user_data["step"] = "done"
+        return
+
+
+# ========================
+# تشغيل البوت
+# ========================
+
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
+
+    # فلتر محدد باش ميوقعش double reply
+    app.add_handler(
+        MessageHandler(
+            filters.Regex(
+                "^(🚀 ابدأ ب 10\\$ \\+ بونص 30\\$|🏦 حساب احترافي طويل المدى|✅ سجلت)$"
+            ),
+            handle_buttons
+        )
+    )
 
     app.run_polling()
 
+
 if __name__ == "__main__":
     main()
-
