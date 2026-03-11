@@ -1,93 +1,70 @@
 import os
-from telegram import (
-    Update,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-)
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-)
+import asyncio
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.filters import CommandStart
 
 BOT_TOKEN = ("8605977902:AAFcABeU2bbnDJenJ0qLgpvBbOceWC3GzsU")
 
-ROBO_LINK = "https://my.roboforex.com/en/?a=omawl"
-EXNESS_LINK = "https://one.exnessonelink.com/a/zi8w32eknv"
-VIP_CHANNEL = "https://t.me/+_woSe4hCzCMzZGE8"
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
 
 
-# ===== START =====
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ===== START COMMAND =====
+@dp.message(CommandStart())
+async def start_handler(message: Message):
 
-    keyboard = [
-        [InlineKeyboardButton("🚀 ابدأ ب $10 + بونص $30", callback_data="robo")],
-        [InlineKeyboardButton("🏦 حساب احترافي طويل المدى", callback_data="exness")],
-    ]
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="🚀 ابدأ ب $10 + بونص $30",
+                callback_data="roboforex"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🏦 حساب احترافي طويل المدى",
+                callback_data="exness"
+            )
+        ]
+    ])
 
-    await update.message.reply_text(
-        "🔥 مرحبا بك في Omar Swing VIP\n\n"
-        "نظام تداول منظم بخطة واضحة وإدارة رأس مال صارمة.\n\n"
+    await message.answer(
+        "🔥 مرحبا بك في نظام Omar Swing VIP\n\n"
         "اختر المسار المناسب لك:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=keyboard
     )
 
 
-# ===== HANDLE BUTTONS =====
-async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+# ===== ROBOFOREX =====
+@dp.callback_query(F.data == "roboforex")
+async def roboforex_handler(callback: CallbackQuery):
 
-    if query.data == "robo":
-        keyboard = [
-            [InlineKeyboardButton("📌 سجل الآن عبر RoboForex", url=ROBO_LINK)],
-            [InlineKeyboardButton("✅ تم التسجيل", callback_data="done")],
-        ]
+    await callback.message.edit_text(
+        "🔥 اختيار ممتاز!\n\n"
+        "سجل الآن واستفد من بونص $30:\n\n"
+        "https://my.roboforex.com/en/?a=omawl"
+    )
 
-        await query.edit_message_text(
-            "🔥 اختيار ممتاز!\n\n"
-            "سجل الآن واستفد من بونص 30$.\n\n"
-            "بعد التسجيل اضغط على 'تم التسجيل'.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
+    await callback.answer()
 
-    elif query.data == "exness":
-        keyboard = [
-            [InlineKeyboardButton("📌 افتح حساب Exness", url=EXNESS_LINK)],
-            [InlineKeyboardButton("✅ تم التسجيل", callback_data="done")],
-        ]
 
-        await query.edit_message_text(
-            "🏦 حساب احترافي طويل المدى\n\n"
-            "افتح حسابك عبر الرابط التالي.\n\n"
-            "بعد التسجيل اضغط على 'تم التسجيل'.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
+# ===== EXNESS =====
+@dp.callback_query(F.data == "exness")
+async def exness_handler(callback: CallbackQuery):
 
-    elif query.data == "done":
-        keyboard = [
-            [InlineKeyboardButton("🔐 دخول القناة VIP", url=VIP_CHANNEL)]
-        ]
+    await callback.message.edit_text(
+        "🏦 حساب احترافي طويل المدى\n\n"
+        "افتح حسابك عبر الرابط التالي:\n\n"
+        "https://one.exnessonelink.com/a/zi8w32eknv"
+    )
 
-        await query.edit_message_text(
-            "🎯 ممتاز!\n\n"
-            "الآن يمكنك الدخول إلى القناة الخاصة:\n\n"
-            "اضغط الزر أسفل 👇",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
+    await callback.answer()
 
 
 # ===== MAIN =====
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(handle_buttons))
-
-    print("Bot is running...")
-    app.run_polling()
-
+async def main():
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
