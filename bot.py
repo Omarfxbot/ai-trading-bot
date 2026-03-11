@@ -8,8 +8,8 @@ from telegram.ext import (
     filters,
 )
 
-BOT_TOKEN = ("
-8605977902:AAHFHDzeqPuQJW-WDEC3S7qSjosj1TpP8Mc")
+BOT_TOKEN = ("8605977902:AAHFHDzeqPuQJW-WDEC3S7qSjosj1TpP8Mc")
+
 
 # ========= START =========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -85,3 +85,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
