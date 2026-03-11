@@ -2,7 +2,7 @@ import os
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = ("8605977902:AAFcABeU2bbnDJenJ0qLgpvBbOceWC3GzsU")
 
 # زر البداية
 keyboard = [["🚀 ابدأ الآن"]]
@@ -32,3 +32,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
