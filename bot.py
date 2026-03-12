@@ -3,7 +3,6 @@ import psycopg2
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
-BOT_TOKEN = ("")
 DATABASE_URL = ("postgresql://postgres:IcdudqSekkFoJgLltsAHtekmWKPZFQdM@turntable.proxy.rlwy.net:26146/railway")
 
 ROBO_LINK = "https://my.roboforex.com/en/?a=omawl"
@@ -129,4 +128,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
