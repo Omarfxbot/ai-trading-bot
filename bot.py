@@ -1,4 +1,4 @@
-```python
+
 import os
 import psycopg2
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -192,3 +192,4 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+
