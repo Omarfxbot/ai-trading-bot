@@ -14,7 +14,7 @@ from telegram.ext import (
 # ================= CONFIG =================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 ROBO_LINK = "https://my.roboforex.com/en/?a=omawl"
 EXNESS_LINK = "https://one.exnessonelink.com/a/zi8w32eknv"
@@ -236,4 +236,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
