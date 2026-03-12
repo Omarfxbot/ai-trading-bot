@@ -16,7 +16,7 @@ DATABASE_URL = ("postgresql://postgres:IcdudqSekkFoJgLltsAHtekmWKPZFQdM@turntabl
 ROBO_LINK = "https://my.roboforex.com/en/?a=omawl"
 EXNESS_LINK = "https://one.exnessonelink.com/a/zi8w32eknv"
 VIP_CHANNEL = "@OmarSwingVIP"
-
+VIP_LINK = "https://t.me/OmarSwingVIP"
 # ================= DATABASE =================
 
 conn = psycopg2.connect(DATABASE_URL)
@@ -149,3 +149,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
