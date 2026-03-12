@@ -15,19 +15,17 @@ DATABASE_URL = ("postgresql://postgres:IcdudqSekkFoJgLltsAHtekmWKPZFQdM@turntabl
 
 ROBO_LINK = "https://my.roboforex.com/en/?a=omawl"
 EXNESS_LINK = "https://one.exnessonelink.com/a/zi8w32eknv"
+
+ROBO_GUIDE = "https://t.me/+68YvPcWphtE3ZGM0"
+EXNESS_GUIDE = "https://t.me/+z5iRMblllboxYWNk"
+
 VIP_CHANNEL = "@OmarSwingVIP"
 VIP_LINK = "https://t.me/OmarSwingVIP"
+
 # ================= DATABASE =================
 
 conn = psycopg2.connect(DATABASE_URL)
 cur = conn.cursor()
-
-cur.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id BIGINT PRIMARY KEY,
-    referrer BIGINT
-);
-""")
 
 cur.execute("""
 CREATE TABLE IF NOT EXISTS stats (
@@ -44,8 +42,6 @@ conn.commit()
 # ================= START =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    user_id = update.effective_user.id
 
     keyboard = [
         [InlineKeyboardButton("🚀 RoboForex 10$ + 30$ Bonus", callback_data="robo")],
@@ -67,7 +63,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     data = query.data
 
-    # اختيار المنصة
+    # ===== اختيار المنصة =====
     if data in ["robo", "exness"]:
 
         context.user_data["platform"] = data
@@ -75,16 +71,40 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         link = ROBO_LINK if data == "robo" else EXNESS_LINK
 
         keyboard = [
+            [InlineKeyboardButton("🎥 مساعدة في التسجيل", callback_data="help")],
             [InlineKeyboardButton("✅ تأكيد التسجيل", callback_data="confirm")]
         ]
 
         await query.edit_message_text(
             f"سجل عبر الرابط التالي:\n\n{link}\n\n"
-            "بعد التسجيل اضغط على تأكيد التسجيل.",
+            "إذا لم تعرف طريقة التسجيل اضغط على مساعدة.",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    # تأكيد التسجيل
+    # ===== زر المساعدة =====
+    elif data == "help":
+
+        platform = context.user_data.get("platform")
+
+        if platform == "robo":
+            guide_link = ROBO_GUIDE
+            platform_name = "RoboForex"
+        else:
+            guide_link = EXNESS_GUIDE
+            platform_name = "Exness"
+
+        keyboard = [
+            [InlineKeyboardButton("🎥 مشاهدة فيديو الشرح", url=guide_link)],
+            [InlineKeyboardButton("⬅️ رجوع", callback_data=platform)]
+        ]
+
+        await query.edit_message_text(
+            f"📌 شرح التسجيل في {platform_name}:\n\n"
+            "شاهد الفيديو ثم عد وأكمل التسجيل.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    # ===== تأكيد التسجيل =====
     elif data == "confirm":
 
         try:
@@ -95,7 +115,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 platform = context.user_data.get("platform")
 
                 if platform:
-                    cur.execute("UPDATE stats SET count = count + 1 WHERE platform = %s;", (platform,))
+                    cur.execute(
+                        "UPDATE stats SET count = count + 1 WHERE platform = %s;",
+                        (platform,)
+                    )
                     conn.commit()
 
                 keyboard = [
@@ -109,7 +132,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
             else:
-                raise Exception("Not a member")
+                raise Exception("Not member")
 
         except:
 
@@ -149,4 +172,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
