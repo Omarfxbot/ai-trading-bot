@@ -1,6 +1,8 @@
-
 import os
 import psycopg2
+import requests
+import pandas as pd
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -11,8 +13,8 @@ from telegram.ext import (
 
 # ================= CONFIG =================
 
-BOT_TOKEN = "8605977902:AAHFHDzeqPuQJW-WDEC3S7qSjosj1TpP8Mc"
-DATABASE_URL = ("postgresql://postgres:IcdudqSekkFoJgLltsAHtekmWKPZFQdM@turntable.proxy.rlwy.net:26146/railway")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 ROBO_LINK = "https://my.roboforex.com/en/?a=omawl"
 EXNESS_LINK = "https://one.exnessonelink.com/a/zi8w32eknv"
@@ -23,6 +25,8 @@ EXNESS_GUIDE = "https://t.me/+z5iRMblllboxYWNk"
 VIP_CHANNEL = "@OmarSwingVIP"
 VIP_LINK = "https://t.me/OmarSwingVIP"
 
+TWELVEDATA_API_KEY = os.getenv("TWELVEDATA_API_KEY")
+
 # ================= DATABASE =================
 
 conn = psycopg2.connect(DATABASE_URL)
@@ -32,6 +36,13 @@ cur.execute("""
 CREATE TABLE IF NOT EXISTS stats (
     platform TEXT PRIMARY KEY,
     count INTEGER DEFAULT 0
+);
+""")
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS daily_signals (
+    date DATE PRIMARY KEY,
+    sent BOOLEAN DEFAULT FALSE
 );
 """)
 
@@ -64,7 +75,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     data = query.data
 
-    # ===== اختيار المنصة =====
     if data in ["robo", "exness"]:
 
         context.user_data["platform"] = data
@@ -76,40 +86,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
 
         await query.edit_message_text(
-            f"سجل عبر الرابط التالي:\n\n{link}\n\n"
-            "إذا لم تعرف طريقة التسجيل اضغط على مساعدة.",
+            f"سجل عبر الرابط التالي:\n\n{link}",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    # ===== زر المساعدة =====
     elif data == "help":
 
         platform = context.user_data.get("platform")
-
-        if platform == "robo":
-            guide_link = ROBO_GUIDE
-            platform_name = "RoboForex"
-        else:
-            guide_link = EXNESS_GUIDE
-            platform_name = "Exness"
+        guide_link = ROBO_GUIDE if platform == "robo" else EXNESS_GUIDE
 
         keyboard = [
             [InlineKeyboardButton("🎥 مشاهدة فيديو الشرح", url=guide_link)],
-            [InlineKeyboardButton("⬅️ رجوع لإكمال التسجيل", callback_data=f"back_{platform}")]
+            [InlineKeyboardButton("⬅️ رجوع", callback_data=f"back_{platform}")]
         ]
 
         await query.edit_message_text(
-            f"📌 شرح التسجيل في {platform_name}:\n\n"
-            "شاهد الفيديو ثم ارجع وأكمل التسجيل.",
+            "شاهد الفيديو ثم أكمل التسجيل.",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    # ===== الرجوع من المساعدة =====
     elif data.startswith("back_"):
 
         platform = data.split("_")[1]
         context.user_data["platform"] = platform
-
         link = ROBO_LINK if platform == "robo" else EXNESS_LINK
 
         keyboard = [
@@ -118,12 +117,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
 
         await query.edit_message_text(
-            f"سجل عبر الرابط التالي:\n\n{link}\n\n"
-            "بعد التسجيل اضغط على تأكيد التسجيل.",
+            f"سجل عبر الرابط التالي:\n\n{link}",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    # ===== تأكيد التسجيل =====
     elif data == "confirm":
 
         try:
@@ -132,7 +129,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if member.status in ["member", "administrator", "creator"]:
 
                 platform = context.user_data.get("platform")
-
                 if platform:
                     cur.execute(
                         "UPDATE stats SET count = count + 1 WHERE platform = %s;",
@@ -145,13 +141,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]
 
                 await query.edit_message_text(
-                    "🎉 تم التحقق بنجاح!\n\n"
-                    "مرحبا بك في VIP 🚀",
+                    "🎉 تم التحقق! مرحبا بك في VIP 🚀",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
 
             else:
-                raise Exception("Not member")
+                raise Exception()
 
         except:
 
@@ -161,22 +156,71 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
 
             await query.edit_message_text(
-                "❌ يجب الانضمام لقناة VIP أولاً ثم اضغط تحققت.",
+                "يجب الانضمام لقناة VIP أولاً.",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
 
-# ================= STATS =================
+# ================= AUTO SIGNAL =================
 
-async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
-    cur.execute("SELECT platform, count FROM stats;")
-    rows = cur.fetchall()
+    today = datetime.utcnow().date()
 
-    text = "📊 الإحصائيات:\n\n"
-    for row in rows:
-        text += f"{row[0]}: {row[1]}\n"
+    cur.execute("SELECT sent FROM daily_signals WHERE date = %s;", (today,))
+    row = cur.fetchone()
 
-    await update.message.reply_text(text)
+    if row:
+        return
+
+    url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=15min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
+    response = requests.get(url).json()
+
+    if "values" not in response:
+        return
+
+    df = pd.DataFrame(response["values"])
+    df = df.astype(float)
+    df = df.iloc[::-1]
+
+    df["ema50"] = df["close"].ewm(span=50).mean()
+    df["ema200"] = df["close"].ewm(span=200).mean()
+
+    last = df.iloc[-1]
+
+    signal = None
+
+    if last["ema50"] > last["ema200"] and last["close"] > last["ema200"]:
+        signal = "BUY"
+    elif last["ema50"] < last["ema200"] and last["close"] < last["ema200"]:
+        signal = "SELL"
+
+    if not signal:
+        return
+
+    entry = last["close"]
+    sl = entry - 5 if signal == "BUY" else entry + 5
+    tp = entry + 10 if signal == "BUY" else entry - 10
+
+    text = (
+        f"📊 XAUUSD – {signal}\n"
+        f"Entry: {entry:.2f}\n"
+        f"SL: {sl:.2f}\n"
+        f"TP: {tp:.2f}\n\n"
+        "⚠️ التداول ينطوي على مخاطر"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔥 تنفيذ الصفقة", url=EXNESS_LINK)]
+    ])
+
+    await context.bot.send_message(
+        chat_id=VIP_CHANNEL,
+        text=text,
+        reply_markup=keyboard
+    )
+
+    cur.execute("INSERT INTO daily_signals (date, sent) VALUES (%s, TRUE);", (today,))
+    conn.commit()
 
 # ================= MAIN =================
 
@@ -184,13 +228,11 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("stats", show_stats))
     app.add_handler(CallbackQueryHandler(button_handler))
+
+    app.job_queue.run_repeating(check_signal, interval=900, first=10)
 
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-
-
-
