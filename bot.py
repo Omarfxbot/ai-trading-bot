@@ -1,127 +1,131 @@
 import os
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
+import psycopg2
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
 BOT_TOKEN = ("8605977902:AAHFHDzeqPuQJW-WDEC3S7qSjosj1TpP8Mc")
+DATABASE_URL = ("postgresql://postgres:IcdudqSekkFoJgLltsAHtekmWKPZFQdM@postgres.railway.internal:5432/railway")
 
 ROBO_LINK = "https://my.roboforex.com/en/?a=omawl"
 EXNESS_LINK = "https://one.exnessonelink.com/a/zi8w32eknv"
-VIP_LINK = "https://t.me/+_woSe4hCzCMzZGE8"
+VIP_CHANNEL = "@YOUR_VIP_CHANNEL_USERNAME"
+
+# ===== DATABASE CONNECTION =====
+conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+cur = conn.cursor()
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id BIGINT PRIMARY KEY,
+    referrer BIGINT
+);
+""")
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS stats (
+    platform TEXT PRIMARY KEY,
+    count INTEGER
+);
+""")
+
+cur.execute("INSERT INTO stats (platform, count) VALUES ('robo', 0) ON CONFLICT DO NOTHING;")
+cur.execute("INSERT INTO stats (platform, count) VALUES ('exness', 0) ON CONFLICT DO NOTHING;")
+
+conn.commit()
 
 
-# ========================
-# START
-# ========================
+# ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    user_id = update.effective_user.id
+    args = context.args
+
+    referrer = None
+    if args:
+        try:
+            referrer = int(args[0])
+            if referrer == user_id:
+                referrer = None
+        except:
+            pass
+
+    cur.execute("INSERT INTO users (user_id, referrer) VALUES (%s, %s) ON CONFLICT DO NOTHING;",
+                (user_id, referrer))
+    conn.commit()
+
     keyboard = [
-        ["🚀 ابدأ ب 10$ + بونص 30$"],
-        ["🏦 حساب احترافي طويل المدى"]
+        [InlineKeyboardButton("🚀 RoboForex", callback_data="robo")],
+        [InlineKeyboardButton("🏦 Exness", callback_data="exness")]
     ]
 
-    reply_markup = ReplyKeyboardMarkup(
-        keyboard,
-        resize_keyboard=True
-    )
-
-    context.user_data.clear()
-
     await update.message.reply_text(
-        "🔥 مرحبا بك في Omar Swing VIP\n\n"
-        "اختر المسار المناسب لك:",
-        reply_markup=reply_markup
+        "اختر المنصة:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    context.user_data["step"] = "choose_platform"
 
+# ================= BUTTON HANDLER =================
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-# ========================
-# HANDLER
-# ========================
-async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-    text = update.message.text
-    step = context.user_data.get("step")
+    user_id = query.from_user.id
+    data = query.data
 
-    # ---- ROBOFOREX ----
-    if text == "🚀 ابدأ ب 10$ + بونص 30$" and step == "choose_platform":
+    if data in ["robo", "exness"]:
+        context.user_data["platform"] = data
 
-        keyboard = [["✅ سجلت"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        link = ROBO_LINK if data == "robo" else EXNESS_LINK
 
-        await update.message.reply_text(
-            "🔥 اختيار ممتاز!\n\n"
-            "سجل الآن واستفد من بونص 30$:\n"
-            f"{ROBO_LINK}\n\n"
-            "بعد التسجيل اضغط على (سجلت)",
-            reply_markup=reply_markup
+        keyboard = [
+            [InlineKeyboardButton("✅ تأكيد التسجيل", callback_data="confirm")]
+        ]
+
+        await query.edit_message_text(
+            f"سجل عبر الرابط:\n{link}",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-        context.user_data["step"] = "waiting_confirmation"
-        return
+    elif data == "confirm":
 
-    # ---- EXNESS ----
-    if text == "🏦 حساب احترافي طويل المدى" and step == "choose_platform":
+        member = await context.bot.get_chat_member(VIP_CHANNEL, user_id)
 
-        keyboard = [["✅ فتحت الحساب"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        if member.status not in ["member", "administrator", "creator"]:
+            await query.edit_message_text("يجب الانضمام لقناة VIP أولاً.")
+            return
 
-        await update.message.reply_text(
-            "🏦 حساب احترافي طويل المدى\n\n"
-            "افتح حسابك عبر الرابط التالي:\n"
-            f"{EXNESS_LINK}\n\n"
-            "بعد فتح الحساب اضغط (فتحت الحساب)",
-            reply_markup=reply_markup
-        )
+        platform = context.user_data.get("platform")
 
-        context.user_data["step"] = "waiting_confirmation_exness"
-        return
+        cur.execute("UPDATE stats SET count = count + 1 WHERE platform = %s;", (platform,))
+        conn.commit()
 
-    # ---- CONFIRM ROBO ----
-    if text == "✅ سجلت" and step == "waiting_confirmation":
-
-        await update.message.reply_text(
-            "🎉 ممتاز!\n\n"
-            "هذا رابط قناة VIP الخاصة:\n"
-            f"{VIP_LINK}",
-            reply_markup=ReplyKeyboardRemove()
-        )
-
-        context.user_data["step"] = "done"
-        return
-
-    # ---- CONFIRM EXNESS ----
-    if text == "✅ فتحت الحساب" and step == "waiting_confirmation_exness":
-
-        await update.message.reply_text(
-            "🎉 رائع!\n\n"
-            "هذا رابط قناة VIP الخاصة:\n"
-            f"{VIP_LINK}",
-            reply_markup=ReplyKeyboardRemove()
-        )
-
-        context.user_data["step"] = "done"
-        return
+        await query.edit_message_text("تم التحقق بنجاح 🎉 مرحباً بك في VIP")
 
 
-# ========================
-# MAIN
-# ========================
+# ================= STATS =================
+async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    cur.execute("SELECT platform, count FROM stats;")
+    rows = cur.fetchall()
+
+    text = "📊 الإحصائيات:\n\n"
+    for row in rows:
+        text += f"{row[0]}: {row[1]}\n"
+
+    await update.message.reply_text(text)
+
+
+# ================= MAIN =================
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
+    app.add_handler(CommandHandler("stats", show_stats))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
-
