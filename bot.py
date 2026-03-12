@@ -1,3 +1,4 @@
+```python
 import os
 import psycopg2
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -67,7 +68,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data in ["robo", "exness"]:
 
         context.user_data["platform"] = data
-
         link = ROBO_LINK if data == "robo" else EXNESS_LINK
 
         keyboard = [
@@ -95,12 +95,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = [
             [InlineKeyboardButton("🎥 مشاهدة فيديو الشرح", url=guide_link)],
-            [InlineKeyboardButton("⬅️ رجوع", callback_data=platform)]
+            [InlineKeyboardButton("⬅️ رجوع لإكمال التسجيل", callback_data=f"back_{platform}")]
         ]
 
         await query.edit_message_text(
             f"📌 شرح التسجيل في {platform_name}:\n\n"
-            "شاهد الفيديو ثم عد وأكمل التسجيل.",
+            "شاهد الفيديو ثم ارجع وأكمل التسجيل.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    # ===== الرجوع من المساعدة =====
+    elif data.startswith("back_"):
+
+        platform = data.split("_")[1]
+        context.user_data["platform"] = platform
+
+        link = ROBO_LINK if platform == "robo" else EXNESS_LINK
+
+        keyboard = [
+            [InlineKeyboardButton("🎥 مساعدة في التسجيل", callback_data="help")],
+            [InlineKeyboardButton("✅ تأكيد التسجيل", callback_data="confirm")]
+        ]
+
+        await query.edit_message_text(
+            f"سجل عبر الرابط التالي:\n\n{link}\n\n"
+            "بعد التسجيل اضغط على تأكيد التسجيل.",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
@@ -172,3 +191,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
