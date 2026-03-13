@@ -163,7 +163,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================= AUTO SIGNAL =================
 
 async def check_signal(context: ContextTypes.DEFAULT_TYPE):
-
+await context.bot.send_message(chat_id=VIP_CHANNEL, text="TEST SIGNAL")
     today = datetime.utcnow().date()
 
     cur.execute("SELECT sent FROM daily_signals WHERE date = %s;", (today,))
@@ -236,6 +236,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
