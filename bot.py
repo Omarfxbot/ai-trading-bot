@@ -41,10 +41,12 @@ CREATE TABLE IF NOT EXISTS stats (
 
 cur.execute("""
 CREATE TABLE IF NOT EXISTS daily_signals (
-    date DATE PRIMARY KEY,
-    sent BOOLEAN DEFAULT FALSE
+    id SERIAL PRIMARY KEY,
+    date DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 """)
+conn.commit()
 
 cur.execute("INSERT INTO stats (platform) VALUES ('robo') ON CONFLICT DO NOTHING;")
 cur.execute("INSERT INTO stats (platform) VALUES ('exness') ON CONFLICT DO NOTHING;")
@@ -188,7 +190,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     df["ema50"] = df["close"].ewm(span=50).mean()
     df["ema200"] = df["close"].ewm(span=200).mean()
 
-    # ===== ATR احترافي (Wilder True Range) =====
+    # ===== ATR احترافي =====
     df["prev_close"] = df["close"].shift(1)
 
     df["tr1"] = df["high"] - df["low"]
@@ -211,7 +213,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
     print("Max signals allowed today:", max_signals)
 
-    # ===== Check Daily Limit =====
+    # ===== Count Today's Signals =====
     cur.execute("SELECT COUNT(*) FROM daily_signals WHERE date = %s;", (today,))
     count = cur.fetchone()[0]
 
@@ -239,7 +241,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
     print("Signal detected:", signal)
 
-    # ===== SL / TP حسب ATR =====
+    # ===== SL / TP =====
     entry = last["close"]
     sl_distance = current_atr * 1.2
     tp_distance = sl_distance * 2
@@ -251,7 +253,6 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         sl = entry + sl_distance
         tp = entry - tp_distance
 
-    # ===== Message =====
     text = (
         f"📊 XAUUSD – {signal}\n"
         f"Entry: {entry:.2f}\n"
@@ -273,7 +274,8 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-    cur.execute("INSERT INTO daily_signals (date, sent) VALUES (%s, TRUE);", (today,))
+    # ===== تسجيل الإشارة =====
+    cur.execute("INSERT INTO daily_signals (date) VALUES (%s);", (today,))
     conn.commit()
 
     print("Signal sent successfully")
@@ -296,6 +298,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
