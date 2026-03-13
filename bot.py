@@ -290,7 +290,7 @@ def main():
 
     # JobQueue غير إلا كانت متوفرة
     if app.job_queue:
-        app.job_queue.run_repeating(check_signal, interval=900, first=10)
+        app.job_queue.run_repeating(check_signal, interval=900, first=900)
     else:
         print("JobQueue not available")
 
@@ -298,6 +298,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
