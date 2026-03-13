@@ -187,7 +187,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     df = pd.DataFrame(response["values"])
     df = df.iloc[::-1]
 
-    numeric_cols = ["open", "high", "low", "close", "volume"]
+   numeric_cols = ["open", "high", "low", "close"]
     df[numeric_cols] = df[numeric_cols].astype(float)
 
     df["ema50"] = df["close"].ewm(span=50).mean()
@@ -257,6 +257,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
