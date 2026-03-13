@@ -196,7 +196,6 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     df["tr3"] = (df["low"] - df["prev_close"]).abs()
 
     df["tr"] = df[["tr1", "tr2", "tr3"]].max(axis=1)
-
     df["atr"] = df["tr"].ewm(alpha=1/14, adjust=False).mean()
 
     current_atr = df.iloc[-1]["atr"]
@@ -252,11 +251,14 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         sl = entry + sl_distance
         tp = entry - tp_distance
 
+    # ===== Message =====
     text = (
         f"📊 XAUUSD – {signal}\n"
         f"Entry: {entry:.2f}\n"
         f"SL: {sl:.2f}\n"
         f"TP: {tp:.2f}\n\n"
+        f"⚡ Quick Copy:\n"
+        f"`XAUUSD {signal} {entry:.2f} SL {sl:.2f} TP {tp:.2f}`\n\n"
         "⚠️ التداول ينطوي على مخاطر"
     )
 
@@ -267,7 +269,8 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=VIP_CHANNEL,
         text=text,
-        reply_markup=keyboard
+        reply_markup=keyboard,
+        parse_mode="Markdown"
     )
 
     cur.execute("INSERT INTO daily_signals (date, sent) VALUES (%s, TRUE);", (today,))
@@ -293,6 +296,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
