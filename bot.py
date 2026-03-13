@@ -168,13 +168,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     today = datetime.utcnow().date()
     print("Today:", today)
 
-    cur.execute("SELECT sent FROM daily_signals WHERE date = %s;", (today,))
-    row = cur.fetchone()
-
-    if row:
-        print("Signal already sent today")
-        return
-
+    # ===== جلب البيانات =====
     url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=15min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
     response = requests.get(url).json()
 
@@ -190,9 +184,43 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     numeric_cols = ["open", "high", "low", "close"]
     df[numeric_cols] = df[numeric_cols].astype(float)
 
+    # ===== EMA =====
     df["ema50"] = df["close"].ewm(span=50).mean()
     df["ema200"] = df["close"].ewm(span=200).mean()
 
+    # ===== ATR احترافي (Wilder True Range) =====
+    df["prev_close"] = df["close"].shift(1)
+
+    df["tr1"] = df["high"] - df["low"]
+    df["tr2"] = (df["high"] - df["prev_close"]).abs()
+    df["tr3"] = (df["low"] - df["prev_close"]).abs()
+
+    df["tr"] = df[["tr1", "tr2", "tr3"]].max(axis=1)
+
+    df["atr"] = df["tr"].ewm(alpha=1/14, adjust=False).mean()
+
+    current_atr = df.iloc[-1]["atr"]
+    print("ATR:", current_atr)
+
+    # ===== Dynamic Max Signals =====
+    if current_atr < 5:
+        max_signals = 1
+    elif current_atr < 10:
+        max_signals = 2
+    else:
+        max_signals = 3
+
+    print("Max signals allowed today:", max_signals)
+
+    # ===== Check Daily Limit =====
+    cur.execute("SELECT COUNT(*) FROM daily_signals WHERE date = %s;", (today,))
+    count = cur.fetchone()[0]
+
+    if count >= max_signals:
+        print("Max signals reached today")
+        return
+
+    # ===== Signal Logic =====
     last = df.iloc[-1]
 
     print("Last Close:", last["close"])
@@ -212,9 +240,17 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
     print("Signal detected:", signal)
 
+    # ===== SL / TP حسب ATR =====
     entry = last["close"]
-    sl = entry - 5 if signal == "BUY" else entry + 5
-    tp = entry + 10 if signal == "BUY" else entry - 10
+    sl_distance = current_atr * 1.2
+    tp_distance = sl_distance * 2
+
+    if signal == "BUY":
+        sl = entry - sl_distance
+        tp = entry + tp_distance
+    else:
+        sl = entry + sl_distance
+        tp = entry - tp_distance
 
     text = (
         f"📊 XAUUSD – {signal}\n"
@@ -257,6 +293,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
