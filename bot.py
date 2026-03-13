@@ -227,15 +227,21 @@ await context.bot.send_message(chat_id=VIP_CHANNEL, text="TEST SIGNAL")
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Handlers ديما خاصهم يتسجلو
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    app.job_queue.run_repeating(check_signal, interval=900, first=10)
+    # JobQueue غير إلا كانت متوفرة
+    if app.job_queue:
+        app.job_queue.run_repeating(check_signal, interval=900, first=10)
+    else:
+        print("JobQueue not available")
 
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+
 
 
 
