@@ -38,7 +38,6 @@ CREATE TABLE IF NOT EXISTS stats (
     count INTEGER DEFAULT 0
 );
 """)
-cur.execute("DROP TABLE IF EXISTS daily_signals;")
 conn.commit()
 cur.execute("""
 CREATE TABLE IF NOT EXISTS daily_signals (
@@ -299,6 +298,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
