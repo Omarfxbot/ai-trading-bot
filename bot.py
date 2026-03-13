@@ -165,17 +165,79 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     print("=== CHECK SIGNAL START ===")
 
-    try:
-        today = datetime.utcnow().date()
-        print("Today:", today)
+    today = datetime.utcnow().date()
+    print("Today:", today)
 
-        # تحقق واش ترسلات إشارة اليوم
-        cur.execute("SELECT sent FROM daily_signals WHERE date = %s;", (today,))
-        row = cur.fetchone()
+    cur.execute("SELECT sent FROM daily_signals WHERE date = %s;", (today,))
+    row = cur.fetchone()
 
-        if row:
-            print("Signal already sent today")
-            return
+    if row:
+        print("Signal already sent today")
+        return
+
+    url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=15min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
+    response = requests.get(url).json()
+
+    if "values" not in response:
+        print("API response invalid:", response)
+        return
+
+    print("API response received")
+
+    df = pd.DataFrame(response["values"])
+    df = df.iloc[::-1]
+
+    numeric_cols = ["open", "high", "low", "close", "volume"]
+    df[numeric_cols] = df[numeric_cols].astype(float)
+
+    df["ema50"] = df["close"].ewm(span=50).mean()
+    df["ema200"] = df["close"].ewm(span=200).mean()
+
+    last = df.iloc[-1]
+
+    print("Last Close:", last["close"])
+    print("EMA50:", last["ema50"])
+    print("EMA200:", last["ema200"])
+
+    signal = None
+
+    if last["ema50"] > last["ema200"] and last["close"] > last["ema200"]:
+        signal = "BUY"
+    elif last["ema50"] < last["ema200"] and last["close"] < last["ema200"]:
+        signal = "SELL"
+
+    if not signal:
+        print("No valid setup found")
+        return
+
+    print("Signal detected:", signal)
+
+    entry = last["close"]
+    sl = entry - 5 if signal == "BUY" else entry + 5
+    tp = entry + 10 if signal == "BUY" else entry - 10
+
+    text = (
+        f"📊 XAUUSD – {signal}\n"
+        f"Entry: {entry:.2f}\n"
+        f"SL: {sl:.2f}\n"
+        f"TP: {tp:.2f}\n\n"
+        "⚠️ التداول ينطوي على مخاطر"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔥 تنفيذ الصفقة", url=EXNESS_LINK)]
+    ])
+
+    await context.bot.send_message(
+        chat_id=VIP_CHANNEL,
+        text=text,
+        reply_markup=keyboard
+    )
+
+    cur.execute("INSERT INTO daily_signals (date, sent) VALUES (%s, TRUE);", (today,))
+    conn.commit()
+
+    print("Signal sent successfully")
 
         # ====== جلب بيانات الذهب ======
         url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=15min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
@@ -263,6 +325,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
