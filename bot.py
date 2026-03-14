@@ -178,134 +178,181 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
     # ===== فلتر الأخبار =====
     try:
-        news = requests.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json", timeout=5).json()
+        news_response = requests.get(
+            "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
+            timeout=5
+        )
+        news = news_response.json() if news_response.status_code == 200 else []
 
         for event in news:
             if event.get("impact") != "High":
                 continue
 
-            event_time = datetime.fromisoformat(event["date"].replace("Z", "+00:00")).replace(tzinfo=None)
-            diff = (event_time - now).total_seconds()
+            event_time = datetime.fromisoformat(
+                event["date"].replace("Z", "+00:00")
+            ).replace(tzinfo=None)
 
-            if 0 < diff < 1800:
+            diff = (event_time - now).total_seconds()
+            if 0 < diff < 1800:  # أقل من 30 دقيقة
                 print("High impact news soon")
                 return
-    except:
-        pass
+
+    except Exception as e:
+        print("News filter error:", e)
 
     for symbol in symbols:
 
-        print("Checking:", symbol)
+        try:
+            print("Checking:", symbol)
 
-        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=15min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
-        response = requests.get(url).json()
+            url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=15min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
+            response = requests.get(url).json()
 
-        if "values" not in response:
-            print("API error:", symbol)
-            continue
-
-        df = pd.DataFrame(response["values"])
-        df = df.iloc[::-1]
-
-        numeric_cols = ["open", "high", "low", "close"]
-        df[numeric_cols] = df[numeric_cols].astype(float)
-
-        # ===== EMA =====
-        df["ema50"] = df["close"].ewm(span=50).mean()
-        df["ema200"] = df["close"].ewm(span=200).mean()
-
-        # ===== ATR =====
-        df["prev_close"] = df["close"].shift(1)
-
-        df["tr1"] = df["high"] - df["low"]
-        df["tr2"] = (df["high"] - df["prev_close"]).abs()
-        df["tr3"] = (df["low"] - df["prev_close"]).abs()
-
-        df["tr"] = df[["tr1", "tr2", "tr3"]].max(axis=1)
-        df["atr"] = df["tr"].ewm(alpha=1/14, adjust=False).mean()
-
-        last = df.iloc[-1]
-        atr = last["atr"]
-
-        # ===== فلتر قوة الشمعة =====
-        candle_size = abs(last["close"] - last["open"])
-
-        if candle_size < atr * 0.3:
-            print("Weak candle:", symbol)
-            continue
-
-        # ===== تحديد الاتجاه =====
-        signal = None
-
-        if last["ema50"] > last["ema200"] and last["close"] > last["ema200"]:
-            signal = "BUY"
-
-        elif last["ema50"] < last["ema200"] and last["close"] < last["ema200"]:
-            signal = "SELL"
-
-        if not signal:
-            continue
-
-        # ===== منع تكرار نفس الاتجاه =====
-        cur.execute("""
-        SELECT created_at FROM daily_signals
-        WHERE direction = %s AND symbol = %s
-        ORDER BY created_at DESC
-        LIMIT 1
-        """, (signal, symbol))
-
-        last_signal = cur.fetchone()
-
-        if last_signal:
-            last_time = last_signal[0]
-            diff = (datetime.utcnow() - last_time).total_seconds()
-
-            if diff < 3600:
-                print("Duplicate signal skipped:", symbol)
+            if "values" not in response:
+                print("API error:", symbol)
                 continue
 
-        entry = last["close"]
+            df = pd.DataFrame(response["values"])
+            df = df.iloc[::-1]
 
-        sl_distance = atr * 1.2
-        tp_distance = sl_distance * 2
+            numeric_cols = ["open", "high", "low", "close"]
+            df[numeric_cols] = df[numeric_cols].astype(float)
 
-        if signal == "BUY":
-            sl = entry - sl_distance
-            tp = entry + tp_distance
-        else:
-            sl = entry + sl_distance
-            tp = entry - tp_distance
+            # ===== EMA =====
+            df["ema50"] = df["close"].ewm(span=50).mean()
+            df["ema200"] = df["close"].ewm(span=200).mean()
 
-        pair = symbol.replace("/", "")
+            # ===== ATR =====
+            df["prev_close"] = df["close"].shift(1)
+            df["tr1"] = df["high"] - df["low"]
+            df["tr2"] = (df["high"] - df["prev_close"]).abs()
+            df["tr3"] = (df["low"] - df["prev_close"]).abs()
 
-        text = (
-            f"📊 {pair} – {signal}\n"
-            f"Entry: {entry:.5f}\n"
-            f"SL: {sl:.5f}\n"
-            f"TP: {tp:.5f}\n\n"
-            f"⚡ Quick Copy:\n"
-            f"`{pair} {signal} {entry:.5f} SL {sl:.5f} TP {tp:.5f}`"
-        )
+            df["tr"] = df[["tr1", "tr2", "tr3"]].max(axis=1)
+            df["atr"] = df["tr"].ewm(alpha=1/14, adjust=False).mean()
 
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔥 تنفيذ الصفقة", url=EXNESS_LINK)]
-        ])
+            # ===== ADX (قوة الترند) =====
+            df["up_move"] = df["high"] - df["high"].shift(1)
+            df["down_move"] = df["low"].shift(1) - df["low"]
 
-        await context.bot.send_message(
-            chat_id=VIP_CHANNEL,
-            text=text,
-            reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
+            df["+dm"] = df["up_move"].where(
+                (df["up_move"] > df["down_move"]) & (df["up_move"] > 0), 0.0
+            )
+            df["-dm"] = df["down_move"].where(
+                (df["down_move"] > df["up_move"]) & (df["down_move"] > 0), 0.0
+            )
 
-        cur.execute(
-            "INSERT INTO daily_signals (date, symbol, direction) VALUES (%s,%s,%s)",
-            (today, symbol, signal)
-        )
+            atr = df["atr"]
 
-        conn.commit()
+            df["+di"] = 100 * (df["+dm"].ewm(alpha=1/14).mean() / atr)
+            df["-di"] = 100 * (df["-dm"].ewm(alpha=1/14).mean() / atr)
 
-        print("Signal sent:", symbol, signal)
+            df["dx"] = (
+                abs(df["+di"] - df["-di"]) /
+                (df["+di"] + df["-di"])
+            ) * 100
+
+            df["adx"] = df["dx"].ewm(alpha=1/14).mean()
+
+            last = df.iloc[-1]
+            prev = df.iloc[-2]
+
+            # ===== فلتر قوة الترند =====
+            if last["adx"] < 20:
+                print("Weak trend:", symbol)
+                continue
+
+            # ===== فلتر قوة الشمعة =====
+            candle_size = abs(last["close"] - last["open"])
+            if candle_size < last["atr"] * 0.3:
+                print("Weak candle:", symbol)
+                continue
+
+            # ===== بداية الحركة (Breakout) =====
+            breakout_buy = last["close"] > prev["high"]
+            breakout_sell = last["close"] < prev["low"]
+
+            signal = None
+
+            if (
+                last["ema50"] > last["ema200"]
+                and breakout_buy
+            ):
+                signal = "BUY"
+
+            elif (
+                last["ema50"] < last["ema200"]
+                and breakout_sell
+            ):
+                signal = "SELL"
+
+            if not signal:
+                continue
+
+            # ===== منع تكرار نفس الاتجاه أقل من ساعة =====
+            cur.execute("""
+            SELECT created_at FROM daily_signals
+            WHERE direction = %s AND symbol = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """, (signal, symbol))
+
+            last_signal = cur.fetchone()
+
+            if last_signal:
+                last_time = last_signal[0]
+                diff = (datetime.utcnow() - last_time).total_seconds()
+                if diff < 3600:
+                    print("Duplicate signal skipped:", symbol)
+                    continue
+
+            entry = last["close"]
+            atr_val = last["atr"]
+
+            sl_distance = atr_val * 1.2
+            tp_distance = sl_distance * 2
+
+            if signal == "BUY":
+                sl = entry - sl_distance
+                tp = entry + tp_distance
+            else:
+                sl = entry + sl_distance
+                tp = entry - tp_distance
+
+            pair = symbol.replace("/", "")
+
+            text = (
+                f"📊 {pair} – {signal}\n"
+                f"Entry: {entry:.5f}\n"
+                f"SL: {sl:.5f}\n"
+                f"TP: {tp:.5f}\n\n"
+                f"⚡ Quick Copy:\n"
+                f"`{pair} {signal} {entry:.5f} SL {sl:.5f} TP {tp:.5f}`"
+            )
+
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔥 تنفيذ الصفقة", url=EXNESS_LINK)]
+            ])
+
+            await context.bot.send_message(
+                chat_id=VIP_CHANNEL,
+                text=text,
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+
+            cur.execute(
+                "INSERT INTO daily_signals (date, symbol, direction) VALUES (%s,%s,%s)",
+                (today, symbol, signal)
+            )
+
+            conn.commit()
+
+            print("Signal sent:", symbol, signal)
+
+        except Exception as e:
+            print("Error processing", symbol, e)
+            continue
 # ================= MAIN =================
 
 def main():
