@@ -355,27 +355,35 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
             continue
 # ================= MAIN =================
 
+# ================= MAIN =================
+
 def main():
     import time
-
-def main():
-
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
-
-    if app.job_queue:
-        app.job_queue.run_repeating(check_signal, interval=900, first=10)
 
     while True:
         try:
             print("Bot starting...")
+
+            app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+            # handlers
+            app.add_handler(CommandHandler("start", start))
+            app.add_handler(CallbackQueryHandler(button_handler))
+
+            # job queue (تشغيل check_signal كل 15 دقيقة)
+            if app.job_queue:
+                app.job_queue.run_repeating(check_signal, interval=900, first=10)
+
+            # تشغيل البوت
             app.run_polling(drop_pending_updates=True)
+
         except Exception as e:
-            print("Error:", e)
+            print("Bot crashed:", e)
             time.sleep(5)
 
+
+if __name__ == "__main__":
+    main()
 
 
 
