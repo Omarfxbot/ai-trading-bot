@@ -163,12 +163,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 # ================= AUTO SIGNAL =================
-
 async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     print("=== CHECK SIGNAL START ===")
 
     today = datetime.utcnow().date()
-    print("Today:", today)
 
     # ===== جلب البيانات =====
     url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=15min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
@@ -177,8 +175,6 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     if "values" not in response:
         print("API response invalid:", response)
         return
-
-    print("API response received")
 
     df = pd.DataFrame(response["values"])
     df = df.iloc[::-1]
@@ -211,9 +207,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     else:
         max_signals = 3
 
-    print("Max signals allowed today:", max_signals)
-
-    # ===== Count Today's Signals =====
+    # ===== عدد الإشارات اليوم =====
     cur.execute("SELECT COUNT(*) FROM daily_signals WHERE date = %s;", (today,))
     count = cur.fetchone()[0]
 
@@ -221,12 +215,8 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         print("Max signals reached today")
         return
 
-    # ===== Signal Logic =====
+    # ===== تحديد الاتجاه =====
     last = df.iloc[-1]
-
-    print("Last Close:", last["close"])
-    print("EMA50:", last["ema50"])
-    print("EMA200:", last["ema200"])
 
     signal = None
 
@@ -239,10 +229,29 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         print("No valid setup found")
         return
 
+    # ===== منع تكرار نفس الاتجاه أقل من ساعة =====
+    cur.execute("""
+        SELECT created_at FROM daily_signals
+        WHERE direction = %s
+        ORDER BY created_at DESC
+        LIMIT 1
+    """, (signal,))
+
+    last_signal = cur.fetchone()
+
+    if last_signal:
+        last_time = last_signal[0]
+        diff = datetime.utcnow() - last_time
+
+        if diff.total_seconds() < 3600:
+            print("Same direction signal sent less than 1 hour ago")
+            return
+
     print("Signal detected:", signal)
 
     # ===== SL / TP =====
     entry = last["close"]
+
     sl_distance = current_atr * 1.2
     tp_distance = sl_distance * 2
 
@@ -259,8 +268,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         f"SL: {sl:.2f}\n"
         f"TP: {tp:.2f}\n\n"
         f"⚡ Quick Copy:\n"
-        f"`XAUUSD {signal} {entry:.2f} SL {sl:.2f} TP {tp:.2f}`\n\n"
-        "⚠️ التداول ينطوي على مخاطر"
+        f"`XAUUSD {signal} {entry:.2f} SL {sl:.2f} TP {tp:.2f}`"
     )
 
     keyboard = InlineKeyboardMarkup([
@@ -275,7 +283,10 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     )
 
     # ===== تسجيل الإشارة =====
-    cur.execute("INSERT INTO daily_signals (date) VALUES (%s);", (today,))
+    cur.execute(
+        "INSERT INTO daily_signals (date, direction) VALUES (%s, %s);",
+        (today, signal)
+    )
     conn.commit()
 
     print("Signal sent successfully")
