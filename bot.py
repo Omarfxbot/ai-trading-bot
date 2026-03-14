@@ -309,23 +309,25 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 # ================= MAIN =================
 
 def main():
+    import time
+
+def main():
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Handlers ديما خاصهم يتسجلو
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    # JobQueue غير إلا كانت متوفرة
     if app.job_queue:
-        app.job_queue.run_repeating(check_signal, interval=900, first=900)
-    else:
-        print("JobQueue not available")
+        app.job_queue.run_repeating(check_signal, interval=900, first=10)
 
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
-
+    while True:
+        try:
+            print("Bot starting...")
+            app.run_polling(drop_pending_updates=True)
+        except Exception as e:
+            print("Error:", e)
+            time.sleep(5)
 
 
 
