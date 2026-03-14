@@ -164,132 +164,121 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= AUTO SIGNAL =================
 async def check_signal(context: ContextTypes.DEFAULT_TYPE):
-    print("=== CHECK SIGNAL START ===")
+
+    symbols = ["XAU/USD", "EUR/USD", "BTC/USD"]
 
     today = datetime.utcnow().date()
 
-    # ===== جلب البيانات =====
-    url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=15min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
-    response = requests.get(url).json()
+    for symbol in symbols:
 
-    if "values" not in response:
-        print("API response invalid:", response)
-        return
+        print("Checking:", symbol)
 
-    df = pd.DataFrame(response["values"])
-    df = df.iloc[::-1]
+        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=15min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
+        response = requests.get(url).json()
 
-    numeric_cols = ["open", "high", "low", "close"]
-    df[numeric_cols] = df[numeric_cols].astype(float)
+        if "values" not in response:
+            print("API error for", symbol)
+            continue
 
-    # ===== EMA =====
-    df["ema50"] = df["close"].ewm(span=50).mean()
-    df["ema200"] = df["close"].ewm(span=200).mean()
+        df = pd.DataFrame(response["values"])
+        df = df.iloc[::-1]
 
-    # ===== ATR احترافي =====
-    df["prev_close"] = df["close"].shift(1)
+        numeric_cols = ["open", "high", "low", "close"]
+        df[numeric_cols] = df[numeric_cols].astype(float)
 
-    df["tr1"] = df["high"] - df["low"]
-    df["tr2"] = (df["high"] - df["prev_close"]).abs()
-    df["tr3"] = (df["low"] - df["prev_close"]).abs()
+        # EMA
+        df["ema50"] = df["close"].ewm(span=50).mean()
+        df["ema200"] = df["close"].ewm(span=200).mean()
 
-    df["tr"] = df[["tr1", "tr2", "tr3"]].max(axis=1)
-    df["atr"] = df["tr"].ewm(alpha=1/14, adjust=False).mean()
+        # ATR
+        df["prev_close"] = df["close"].shift(1)
 
-    current_atr = df.iloc[-1]["atr"]
-    print("ATR:", current_atr)
+        df["tr1"] = df["high"] - df["low"]
+        df["tr2"] = (df["high"] - df["prev_close"]).abs()
+        df["tr3"] = (df["low"] - df["prev_close"]).abs()
 
-    # ===== Dynamic Max Signals =====
-    if current_atr < 5:
-        max_signals = 1
-    elif current_atr < 10:
-        max_signals = 2
-    else:
-        max_signals = 3
+        df["tr"] = df[["tr1", "tr2", "tr3"]].max(axis=1)
+        df["atr"] = df["tr"].ewm(alpha=1/14, adjust=False).mean()
 
-    # ===== عدد الإشارات اليوم =====
-    cur.execute("SELECT COUNT(*) FROM daily_signals WHERE date = %s;", (today,))
-    count = cur.fetchone()[0]
+        last = df.iloc[-1]
 
-    if count >= max_signals:
-        print("Max signals reached today")
-        return
+        signal = None
 
-    # ===== تحديد الاتجاه =====
-    last = df.iloc[-1]
+        if last["ema50"] > last["ema200"] and last["close"] > last["ema200"]:
+            signal = "BUY"
 
-    signal = None
+        elif last["ema50"] < last["ema200"] and last["close"] < last["ema200"]:
+            signal = "SELL"
 
-    if last["ema50"] > last["ema200"] and last["close"] > last["ema200"]:
-        signal = "BUY"
-    elif last["ema50"] < last["ema200"] and last["close"] < last["ema200"]:
-        signal = "SELL"
+        if not signal:
+            continue
 
-    if not signal:
-        print("No valid setup found")
-        return
-
-    # ===== منع تكرار نفس الاتجاه أقل من ساعة =====
-    cur.execute("""
+        # منع تكرار نفس الاتجاه أقل من ساعة
+        cur.execute("""
         SELECT created_at FROM daily_signals
-        WHERE direction = %s
+        WHERE direction = %s AND symbol = %s
         ORDER BY created_at DESC
         LIMIT 1
-    """, (signal,))
+        """, (signal, symbol))
 
-    last_signal = cur.fetchone()
+        last_signal = cur.fetchone()
 
-    if last_signal:
-        last_time = last_signal[0]
-        diff = datetime.utcnow() - last_time
+        if last_signal:
 
-        if diff.total_seconds() < 3600:
-            print("Same direction signal sent less than 1 hour ago")
-            return
+            last_time = last_signal[0]
+            diff = datetime.utcnow() - last_time
 
-    print("Signal detected:", signal)
+            if diff.total_seconds() < 3600:
+                print("Skipped duplicate direction:", symbol)
+                continue
 
-    # ===== SL / TP =====
-    entry = last["close"]
+        entry = last["close"]
 
-    sl_distance = current_atr * 1.2
-    tp_distance = sl_distance * 2
+        atr = last["atr"]
 
-    if signal == "BUY":
-        sl = entry - sl_distance
-        tp = entry + tp_distance
-    else:
-        sl = entry + sl_distance
-        tp = entry - tp_distance
+        sl_distance = atr * 1.2
+        tp_distance = sl_distance * 2
 
-    text = (
-        f"📊 XAUUSD – {signal}\n"
-        f"Entry: {entry:.2f}\n"
-        f"SL: {sl:.2f}\n"
-        f"TP: {tp:.2f}\n\n"
-        f"⚡ Quick Copy:\n"
-        f"`XAUUSD {signal} {entry:.2f} SL {sl:.2f} TP {tp:.2f}`"
-    )
+        if signal == "BUY":
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔥 تنفيذ الصفقة", url=EXNESS_LINK)]
-    ])
+            sl = entry - sl_distance
+            tp = entry + tp_distance
 
-    await context.bot.send_message(
-        chat_id=VIP_CHANNEL,
-        text=text,
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
+        else:
 
-    # ===== تسجيل الإشارة =====
-    cur.execute(
-        "INSERT INTO daily_signals (date, direction) VALUES (%s, %s);",
-        (today, signal)
-    )
-    conn.commit()
+            sl = entry + sl_distance
+            tp = entry - tp_distance
 
-    print("Signal sent successfully")
+        pair_name = symbol.replace("/", "")
+
+        text = (
+            f"📊 {pair_name} – {signal}\n"
+            f"Entry: {entry:.5f}\n"
+            f"SL: {sl:.5f}\n"
+            f"TP: {tp:.5f}\n\n"
+            f"⚡ Quick Copy:\n"
+            f"`{pair_name} {signal} {entry:.5f} SL {sl:.5f} TP {tp:.5f}`"
+        )
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔥 تنفيذ الصفقة", url=EXNESS_LINK)]
+        ])
+
+        await context.bot.send_message(
+            chat_id=VIP_CHANNEL,
+            text=text,
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+
+        cur.execute(
+            "INSERT INTO daily_signals (date, symbol, direction) VALUES (%s,%s,%s)",
+            (today, symbol, signal)
+        )
+
+        conn.commit()
+
+        print("Signal sent:", symbol, signal)
 # ================= MAIN =================
 
 def main():
