@@ -167,7 +167,31 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
     symbols = ["XAU/USD", "EUR/USD", "BTC/USD"]
 
-    today = datetime.utcnow().date()
+    now = datetime.utcnow()
+    hour = now.hour
+    today = now.date()
+
+    # ===== فلتر جلسات التداول =====
+    if hour < 7 or hour > 22:
+        print("Outside trading sessions")
+        return
+
+    # ===== فلتر الأخبار =====
+    try:
+        news = requests.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json", timeout=5).json()
+
+        for event in news:
+            if event.get("impact") != "High":
+                continue
+
+            event_time = datetime.fromisoformat(event["date"].replace("Z", "+00:00")).replace(tzinfo=None)
+            diff = (event_time - now).total_seconds()
+
+            if 0 < diff < 1800:
+                print("High impact news soon")
+                return
+    except:
+        pass
 
     for symbol in symbols:
 
@@ -177,7 +201,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         response = requests.get(url).json()
 
         if "values" not in response:
-            print("API error for", symbol)
+            print("API error:", symbol)
             continue
 
         df = pd.DataFrame(response["values"])
@@ -186,11 +210,11 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         numeric_cols = ["open", "high", "low", "close"]
         df[numeric_cols] = df[numeric_cols].astype(float)
 
-        # EMA
+        # ===== EMA =====
         df["ema50"] = df["close"].ewm(span=50).mean()
         df["ema200"] = df["close"].ewm(span=200).mean()
 
-        # ATR
+        # ===== ATR =====
         df["prev_close"] = df["close"].shift(1)
 
         df["tr1"] = df["high"] - df["low"]
@@ -201,7 +225,16 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         df["atr"] = df["tr"].ewm(alpha=1/14, adjust=False).mean()
 
         last = df.iloc[-1]
+        atr = last["atr"]
 
+        # ===== فلتر قوة الشمعة =====
+        candle_size = abs(last["close"] - last["open"])
+
+        if candle_size < atr * 0.3:
+            print("Weak candle:", symbol)
+            continue
+
+        # ===== تحديد الاتجاه =====
         signal = None
 
         if last["ema50"] > last["ema200"] and last["close"] > last["ema200"]:
@@ -213,7 +246,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         if not signal:
             continue
 
-        # منع تكرار نفس الاتجاه أقل من ساعة
+        # ===== منع تكرار نفس الاتجاه =====
         cur.execute("""
         SELECT created_at FROM daily_signals
         WHERE direction = %s AND symbol = %s
@@ -224,40 +257,34 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         last_signal = cur.fetchone()
 
         if last_signal:
-
             last_time = last_signal[0]
-            diff = datetime.utcnow() - last_time
+            diff = (datetime.utcnow() - last_time).total_seconds()
 
-            if diff.total_seconds() < 3600:
-                print("Skipped duplicate direction:", symbol)
+            if diff < 3600:
+                print("Duplicate signal skipped:", symbol)
                 continue
 
         entry = last["close"]
-
-        atr = last["atr"]
 
         sl_distance = atr * 1.2
         tp_distance = sl_distance * 2
 
         if signal == "BUY":
-
             sl = entry - sl_distance
             tp = entry + tp_distance
-
         else:
-
             sl = entry + sl_distance
             tp = entry - tp_distance
 
-        pair_name = symbol.replace("/", "")
+        pair = symbol.replace("/", "")
 
         text = (
-            f"📊 {pair_name} – {signal}\n"
+            f"📊 {pair} – {signal}\n"
             f"Entry: {entry:.5f}\n"
             f"SL: {sl:.5f}\n"
             f"TP: {tp:.5f}\n\n"
             f"⚡ Quick Copy:\n"
-            f"`{pair_name} {signal} {entry:.5f} SL {sl:.5f} TP {tp:.5f}`"
+            f"`{pair} {signal} {entry:.5f} SL {sl:.5f} TP {tp:.5f}`"
         )
 
         keyboard = InlineKeyboardMarkup([
