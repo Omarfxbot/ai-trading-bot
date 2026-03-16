@@ -1,4 +1,4 @@
-```python
+
 import os
 import psycopg2
 import requests
@@ -190,4 +190,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
+
