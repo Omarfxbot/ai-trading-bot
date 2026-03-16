@@ -231,7 +231,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
                     print("Duplicate signal skipped:", symbol)
                     continue
 
-            entry = last["close"]
+entry = last["close"]
 
 atr_val = last["atr"]
 
