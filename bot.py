@@ -181,7 +181,33 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     if False:
         print("Outside trading sessions")
         return
+# ===== News Filter =====
+try:
+    news_response = requests.get(
+        "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
+        timeout=5
+    )
 
+    if news_response.status_code == 200:
+        news = news_response.json()
+
+        for event in news:
+            if event.get("impact") != "High":
+                continue
+
+            event_time = datetime.fromisoformat(
+                event["date"].replace("Z", "+00:00")
+            ).replace(tzinfo=None)
+
+            diff = (event_time - now).total_seconds()
+
+            # إذا كان الخبر خلال 30 دقيقة
+            if 0 < diff < 1800:
+                print("High impact news soon")
+                return
+
+except Exception as e:
+    print("News filter error:", e)
     for symbol in symbols:
 
         try:
