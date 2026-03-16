@@ -42,8 +42,8 @@ def trading_session():
 async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
     if not trading_session():
-    print("Outside London/NY session")
-    return
+        print("Outside London/NY session")
+        return
 
     symbols = ["XAU/USD", "EUR/USD", "BTC/USD"]
 
