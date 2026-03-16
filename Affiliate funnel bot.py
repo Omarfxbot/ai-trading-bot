@@ -156,5 +156,5 @@ app.add_handler(CommandHandler("dashboard", dashboard))
 app.add_handler(MessageHandler(filters.TEXT, handle_message))
 
 print("Affiliate Funnel Bot Running")
+app.run_polling(drop_pending_updates=True)
 
-app.run_polling()
