@@ -114,8 +114,9 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
         df = get_gold_data()
 
-    except:
-        print("Data error")
+    except Exeption as e:
+        print("Data error:", e) 
+       
         return
 
     trend = trend_filter(df)
@@ -186,7 +187,7 @@ app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.job_queue.run_repeating(
     check_signal,
-    interval=300,
+    interval=60,
     first=10
 )
 
