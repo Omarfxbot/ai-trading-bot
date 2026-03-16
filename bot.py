@@ -114,7 +114,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
         df = get_gold_data()
 
-    except Exeption as e:
+    except Exception as e:
         print("Data error:", e) 
        
         return
