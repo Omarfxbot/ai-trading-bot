@@ -153,7 +153,7 @@ app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.job_queue.run_repeating(
     check_signal,
-    interval=900,
+    interval=60,
     first=5
 )
 
