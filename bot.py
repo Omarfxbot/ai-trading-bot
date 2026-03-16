@@ -149,21 +149,14 @@ XAUUSD {signal} {entry:.2f} SL {sl:.2f} TP {tp1:.2f}
     print("Signal sent", signal)
 
 
-async def main():
+app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+app.job_queue.run_repeating(
+    check_signal,
+    interval=900,
+    first=10
+)
 
-    app.job_queue.run_repeating(
-        check_signal,
-        interval=900,
-        first=10
-    )
+print("Gold Pro Bot Started")
 
-    print("Gold Pro Bot Started")
-
-    await app.run_polling()
-
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+app.run_polling()
