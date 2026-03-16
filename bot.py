@@ -143,13 +143,13 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
             pair = symbol.replace("/","")
 
             text = (
-                f"📊 {pair} – {signal}\n\n"
-                f"Entry: {entry:.5f}\n"
-                f"SL: {sl:.5f}\n"
-                f"TP: {tp:.5f}\n\n"
-                f"⚡ Quick Copy:\n"
-                f"`{pair} {signal} {entry:.5f} SL {sl:.5f} TP {tp:.5f}`"
-            )
+    f"📊 {pair} – {signal} (MARKET)\n\n"
+    f"Current Price: {entry:.5f}\n"
+    f"SL: {sl:.5f}\n"
+    f"TP: {tp:.5f}\n\n"
+    f"⚡ Quick Copy:\n"
+    f"`{pair} {signal} SL {sl:.5f} TP {tp:.5f}`"
+)
 
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔥 تنفيذ الصفقة", url=EXNESS_LINK)]
