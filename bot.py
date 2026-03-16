@@ -34,7 +34,7 @@ def trading_session():
     now = datetime.utcnow()
     hour = now.hour
 
-    if 7 <= hour <= 22:
+    if 0 <= hour <= 23:
         return True
     else:
         return False
