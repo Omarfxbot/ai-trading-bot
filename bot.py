@@ -23,14 +23,21 @@ def get_gold_data():
     url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=5min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
 
     r = requests.get(url)
-
     data = r.json()
 
     df = pd.DataFrame(data["values"])
 
-    df = df.astype(float)
+    # نخلي غير أعمدة الأسعار
+    df = df[['open', 'high', 'low', 'close']]
 
-    df = df.iloc[::-1]
+    # نحولهم لأرقام
+    df['open'] = df['open'].astype(float)
+    df['high'] = df['high'].astype(float)
+    df['low'] = df['low'].astype(float)
+    df['close'] = df['close'].astype(float)
+
+    # نقلب الداتا باش يكون القديم الفوق والجديد التحت
+    df = df.iloc[::-1].reset_index(drop=True)
 
     return df
 
