@@ -1,4 +1,3 @@
-
 import os
 import psycopg2
 import requests
@@ -39,25 +38,19 @@ CREATE TABLE IF NOT EXISTS stats (
     count INTEGER DEFAULT 0
 );
 """)
-
+conn.commit()
 cur.execute("""
 CREATE TABLE IF NOT EXISTS daily_signals (
     id SERIAL PRIMARY KEY,
-    symbol TEXT,
-    direction TEXT,
+    date DATE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 """)
-
-cur.execute("""
-CREATE INDEX IF NOT EXISTS idx_signal_symbol_direction
-ON daily_signals(symbol, direction);
-""")
-
 conn.commit()
 
 cur.execute("INSERT INTO stats (platform) VALUES ('robo') ON CONFLICT DO NOTHING;")
 cur.execute("INSERT INTO stats (platform) VALUES ('exness') ON CONFLICT DO NOTHING;")
+
 conn.commit()
 
 # ================= START =================
@@ -170,22 +163,46 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 # ================= AUTO SIGNAL =================
-
 async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
     symbols = ["XAU/USD", "EUR/USD", "BTC/USD"]
 
     now = datetime.utcnow()
     hour = now.hour
+    today = now.date()
 
+    # ===== فلتر جلسات التداول =====
     if hour < 7 or hour > 22:
         print("Outside trading sessions")
         return
 
+    # ===== فلتر الأخبار =====
+    try:
+        news_response = requests.get(
+            "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
+            timeout=5
+        )
+        news = news_response.json() if news_response.status_code == 200 else []
+
+        for event in news:
+            if event.get("impact") != "High":
+                continue
+
+            event_time = datetime.fromisoformat(
+                event["date"].replace("Z", "+00:00")
+            ).replace(tzinfo=None)
+
+            diff = (event_time - now).total_seconds()
+            if 0 < diff < 1800:  # أقل من 30 دقيقة
+                print("High impact news soon")
+                return
+
+    except Exception as e:
+        print("News filter error:", e)
+
     for symbol in symbols:
 
         try:
-
             print("Checking:", symbol)
 
             url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=15min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
@@ -198,53 +215,120 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
             df = pd.DataFrame(response["values"])
             df = df.iloc[::-1]
 
-            numeric_cols = ["open","high","low","close"]
+            numeric_cols = ["open", "high", "low", "close"]
             df[numeric_cols] = df[numeric_cols].astype(float)
 
+            # ===== EMA =====
             df["ema50"] = df["close"].ewm(span=50).mean()
             df["ema200"] = df["close"].ewm(span=200).mean()
+
+            # ===== ATR =====
+            df["prev_close"] = df["close"].shift(1)
+            df["tr1"] = df["high"] - df["low"]
+            df["tr2"] = (df["high"] - df["prev_close"]).abs()
+            df["tr3"] = (df["low"] - df["prev_close"]).abs()
+
+            df["tr"] = df[["tr1", "tr2", "tr3"]].max(axis=1)
+            df["atr"] = df["tr"].ewm(alpha=1/14, adjust=False).mean()
+
+            # ===== ADX (قوة الترند) =====
+            df["up_move"] = df["high"] - df["high"].shift(1)
+            df["down_move"] = df["low"].shift(1) - df["low"]
+
+            df["+dm"] = df["up_move"].where(
+                (df["up_move"] > df["down_move"]) & (df["up_move"] > 0), 0.0
+            )
+            df["-dm"] = df["down_move"].where(
+                (df["down_move"] > df["up_move"]) & (df["down_move"] > 0), 0.0
+            )
+
+            atr = df["atr"]
+
+            df["+di"] = 100 * (df["+dm"].ewm(alpha=1/14).mean() / atr)
+            df["-di"] = 100 * (df["-dm"].ewm(alpha=1/14).mean() / atr)
+
+            df["dx"] = (
+                abs(df["+di"] - df["-di"]) /
+                (df["+di"] + df["-di"])
+            ) * 100
+
+            df["adx"] = df["dx"].ewm(alpha=1/14).mean()
 
             last = df.iloc[-1]
             prev = df.iloc[-2]
 
+            # ===== فلتر قوة الترند =====
+            if last["adx"] < 20:
+                print("Weak trend:", symbol)
+                continue
+
+            # ===== فلتر قوة الشمعة =====
+            candle_size = abs(last["close"] - last["open"])
+            if candle_size < last["atr"] * 0.3:
+                print("Weak candle:", symbol)
+                continue
+
+            # ===== بداية الحركة (Breakout) =====
+            breakout_buy = last["close"] > prev["high"]
+            breakout_sell = last["close"] < prev["low"]
+
             signal = None
 
-            if last["ema50"] > last["ema200"] and last["close"] > prev["high"]:
+            if (
+                last["ema50"] > last["ema200"]
+                and breakout_buy
+            ):
                 signal = "BUY"
 
-            elif last["ema50"] < last["ema200"] and last["close"] < prev["low"]:
+            elif (
+                last["ema50"] < last["ema200"]
+                and breakout_sell
+            ):
                 signal = "SELL"
 
             if not signal:
                 continue
 
+            # ===== منع تكرار نفس الاتجاه أقل من ساعة =====
             cur.execute("""
             SELECT created_at FROM daily_signals
-            WHERE direction=%s AND symbol=%s
+            WHERE direction = %s AND symbol = %s
             ORDER BY created_at DESC
             LIMIT 1
-            """,(signal,symbol))
+            """, (signal, symbol))
 
             last_signal = cur.fetchone()
 
             if last_signal:
-                diff = (datetime.utcnow() - last_signal[0]).total_seconds()
+                last_time = last_signal[0]
+                diff = (datetime.utcnow() - last_time).total_seconds()
                 if diff < 3600:
                     print("Duplicate signal skipped:", symbol)
                     continue
 
             entry = last["close"]
+            atr_val = last["atr"]
 
-            pair = symbol.replace("/","")
+            sl_distance = atr_val * 1.2
+            tp_distance = sl_distance * 2
 
-            text = f"""
-📊 {pair} – {signal}
+            if signal == "BUY":
+                sl = entry - sl_distance
+                tp = entry + tp_distance
+            else:
+                sl = entry + sl_distance
+                tp = entry - tp_distance
 
-Entry: {entry:.5f}
+            pair = symbol.replace("/", "")
 
-⚡ Quick Copy
-`{pair} {signal} {entry:.5f}`
-"""
+            text = (
+                f"📊 {pair} – {signal}\n"
+                f"Entry: {entry:.5f}\n"
+                f"SL: {sl:.5f}\n"
+                f"TP: {tp:.5f}\n\n"
+                f"⚡ Quick Copy:\n"
+                f"`{pair} {signal} {entry:.5f} SL {sl:.5f} TP {tp:.5f}`"
+            )
 
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔥 تنفيذ الصفقة", url=EXNESS_LINK)]
@@ -258,19 +342,18 @@ Entry: {entry:.5f}
             )
 
             cur.execute(
-                "INSERT INTO daily_signals(symbol,direction) VALUES(%s,%s)",
-                (symbol,signal)
+                "INSERT INTO daily_signals (date, symbol, direction) VALUES (%s,%s,%s)",
+                (today, symbol, signal)
             )
 
             conn.commit()
 
-            print("Signal sent:",symbol,signal)
+            print("Signal sent:", symbol, signal)
 
         except Exception as e:
-
-            print("Error processing",symbol,e)
-            conn.rollback()
+            print("Error processing", symbol, e)
             continue
+# ================= MAIN =================
 
 # ================= MAIN =================
 
@@ -278,25 +361,44 @@ def main():
     import time
 
     while True:
-
         try:
-
             print("Bot starting...")
 
             app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-            app.add_handler(CommandHandler("start",start))
+            # handlers
+            app.add_handler(CommandHandler("start", start))
             app.add_handler(CallbackQueryHandler(button_handler))
 
+            # job queue (تشغيل check_signal كل 15 دقيقة)
             if app.job_queue:
-                app.job_queue.run_repeating(check_signal,interval=900,first=10)
+                app.job_queue.run_repeating(check_signal, interval=900, first=10)
 
+            # تشغيل البوت
             app.run_polling(drop_pending_updates=True)
 
         except Exception as e:
-
-            print("Bot crashed:",e)
+            print("Bot crashed:", e)
             time.sleep(5)
+
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
