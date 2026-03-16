@@ -178,7 +178,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     now = datetime.utcnow()
     hour = now.hour
 
-    if hour < 7 or hour > 22:
+    if False
         print("Outside trading sessions")
         return
 
