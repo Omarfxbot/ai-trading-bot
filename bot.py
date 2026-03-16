@@ -1,55 +1,40 @@
-
 import os
-import psycopg2
 import requests
 import pandas as pd
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, ContextTypes
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-DATABASE_URL = os.environ.get("DATABASE_URL")
-
-EXNESS_LINK = "https://one.exnessonelink.com/a/zi8w32eknv"
-
-VIP_CHANNEL = "@OmarSwingVIP"
-
 TWELVEDATA_API_KEY = os.getenv("TWELVEDATA_API_KEY")
 
-conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-cur = conn.cursor()
+VIP_CHANNEL = "@OmarSwingVIP"
+EXNESS_LINK = "https://one.exnessonelink.com/a/zi8w32eknv"
 
-cur.execute("""
-CREATE TABLE IF NOT EXISTS daily_signals (
-    id SERIAL PRIMARY KEY,
-    symbol TEXT,
-    direction TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-""")
+signals_today = 0
+MAX_SIGNALS = 4
+today_date = None
 
-conn.commit()
-
-def trading_session():
-    now = datetime.utcnow()
-    hour = now.hour
-
-    if 7 <= hour <= 22:
-        return True
-    else:
-        return False
 
 async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
-    if not trading_session():
-        print("Outside London/NY session")
-        return
-
-    symbols = ["XAU/USD", "EUR/USD", "BTC/USD"]
+    global signals_today
+    global today_date
 
     now = datetime.utcnow()
+    hour = now.hour
+    today = now.date()
 
-    # -------- NEWS FILTER --------
+    if today_date != today:
+        signals_today = 0
+        today_date = today
+
+    if signals_today >= MAX_SIGNALS:
+        return
+
+    if hour < 7 or hour > 22:
+        return
+
     try:
         news = requests.get(
             "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
@@ -57,6 +42,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         ).json()
 
         for event in news:
+
             if event.get("impact") != "High":
                 continue
 
@@ -70,137 +56,114 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
                 print("High impact news soon")
                 return
 
-    except Exception as e:
-        print("News filter error:", e)
+    except:
+        pass
 
-    for symbol in symbols:
+    symbol = "XAU/USD"
 
-        try:
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=15min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
 
-            print("Checking:", symbol)
+    response = requests.get(url).json()
 
-            url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=15min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
+    if "values" not in response:
+        return
 
-            response = requests.get(url).json()
+    df = pd.DataFrame(response["values"])
+    df = df.iloc[::-1]
 
-            if "values" not in response:
-                print("API error")
-                continue
+    numeric_cols = ["open", "high", "low", "close"]
+    df[numeric_cols] = df[numeric_cols].astype(float)
 
-            df = pd.DataFrame(response["values"])
-            df = df.iloc[::-1]
+    df["ema200"] = df["close"].ewm(span=200).mean()
 
-            numeric_cols = ["open","high","low","close"]
-            df[numeric_cols] = df[numeric_cols].astype(float)
+    df["high20"] = df["high"].rolling(20).max()
+    df["low20"] = df["low"].rolling(20).min()
 
-            # EMA
-            df["ema50"] = df["close"].ewm(span=50).mean()
-            df["ema200"] = df["close"].ewm(span=200).mean()
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
 
-            # ATR
-            df["prev_close"] = df["close"].shift(1)
-            df["tr1"] = df["high"] - df["low"]
-            df["tr2"] = (df["high"] - df["prev_close"]).abs()
-            df["tr3"] = (df["low"] - df["prev_close"]).abs()
+    signal = None
 
-            df["tr"] = df[["tr1","tr2","tr3"]].max(axis=1)
-            df["atr"] = df["tr"].rolling(14).mean()
+    if last["close"] > last["ema200"]:
 
-            last = df.iloc[-1]
-            prev = df.iloc[-2]
-
-            # Candle strength filter
-            candle_size = abs(last["close"] - last["open"])
-            if candle_size < last["atr"] * 0.3:
-                print("Weak candle:", symbol)
-                continue
-
-            signal = None
-
-            if last["ema50"] > last["ema200"] and last["close"] > prev["high"]:
+        if prev["close"] < prev["open"] and last["close"] > last["open"]:
+            if abs(last["close"] - last["low20"]) < 2:
                 signal = "BUY"
 
-            elif last["ema50"] < last["ema200"] and last["close"] < prev["low"]:
+    if last["close"] < last["ema200"]:
+
+        if prev["close"] > prev["open"] and last["close"] < last["open"]:
+            if abs(last["close"] - last["high20"]) < 2:
                 signal = "SELL"
 
-            if not signal:
-                continue
+    if not signal:
+        return
 
-            cur.execute(
-                "SELECT created_at FROM daily_signals WHERE direction=%s AND symbol=%s ORDER BY created_at DESC LIMIT 1",
-                (signal, symbol)
-            )
+    entry = last["close"]
 
-            last_signal = cur.fetchone()
+    sl_distance = 10
+    tp_distance = 20
 
-            if last_signal:
-                diff = (datetime.utcnow() - last_signal[0]).total_seconds()
-                if diff < 3600:
-                    print("Duplicate signal skipped:", symbol)
-                    continue
+    if signal == "BUY":
 
-            entry = last["close"]
+        sl = entry - sl_distance
 
-            atr_val = last["atr"]
+        tp1 = entry + tp_distance
+        tp2 = entry + tp_distance * 2
+        tp3 = entry + tp_distance * 3
 
-            sl_distance = atr_val * 1.2
-            tp_distance = sl_distance * 2
+    else:
 
-            if signal == "BUY":
-                sl = entry - sl_distance
-                tp = entry + tp_distance
-            else:
-                sl = entry + sl_distance
-                tp = entry - tp_distance
+        sl = entry + sl_distance
 
-            pair = symbol.replace("/","")
+        tp1 = entry - tp_distance
+        tp2 = entry - tp_distance * 2
+        tp3 = entry - tp_distance * 3
 
-            text = (
-    f"📊 {pair} – {signal} (MARKET)\n\n"
-    f"Current Price: {entry:.5f}\n"
-    f"SL: {sl:.5f}\n"
-    f"TP: {tp:.5f}\n\n"
-    f"⚡ Quick Copy:\n"
-    f"`{pair} {signal} SL {sl:.5f} TP {tp:.5f}`"
-)
+    text = f"""
+📊 XAUUSD – {signal}
 
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔥 تنفيذ الصفقة", url=EXNESS_LINK)]
-            ])
+Entry: {entry:.2f}
+SL: {sl:.2f}
 
-            await context.bot.send_message(
-                chat_id=VIP_CHANNEL,
-                text=text,
-                reply_markup=keyboard,
-                parse_mode="Markdown"
-            )
+TP1: {tp1:.2f}
+TP2: {tp2:.2f}
+TP3: {tp3:.2f}
 
-            cur.execute(
-                "INSERT INTO daily_signals(symbol, direction) VALUES(%s,%s)",
-                (symbol, signal)
-            )
+⚡ Quick Copy
+XAUUSD {signal} {entry:.2f} SL {sl:.2f} TP {tp1:.2f}
+"""
 
-            conn.commit()
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔥 تنفيذ الصفقة", url=EXNESS_LINK)]
+    ])
 
-            print("Signal sent:", symbol, signal)
+    await context.bot.send_message(
+        chat_id=VIP_CHANNEL,
+        text=text,
+        reply_markup=keyboard
+    )
 
-        except Exception as e:
-            print("Error processing", symbol, e)
-            conn.rollback()
-            continue
+    signals_today += 1
+
+    print("Signal sent", signal)
 
 
-def main():
+async def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    app.job_queue.run_repeating(check_signal, interval=900, first=10)
+    app.job_queue.run_repeating(
+        check_signal,
+        interval=900,
+        first=10
+    )
 
-    print("Bot starting...")
+    print("Gold Pro Bot Started")
 
-    app.run_polling()
+    await app.run_polling()
 
 
 if __name__ == "__main__":
-    main()
-
+    import asyncio
+    asyncio.run(main())
