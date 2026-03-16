@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS daily_signals (
 );
 """)
 
-cur.execute("""
+cur.execute
 CREATE INDEX IF NOT EXISTS idx_signal_symbol_direction
 ON daily_signals(symbol, direction);
 """)
