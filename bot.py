@@ -30,7 +30,20 @@ CREATE TABLE IF NOT EXISTS daily_signals (
 
 conn.commit()
 
+def trading_session():
+    now = datetime.utcnow()
+    hour = now.hour
+
+    if 7 <= hour <= 22:
+        return True
+    else:
+        return False
+
 async def check_signal(context: ContextTypes.DEFAULT_TYPE):
+
+    if not trading_session():
+    print("Outside London/NY session")
+    return
 
     symbols = ["XAU/USD", "EUR/USD", "BTC/USD"]
 
