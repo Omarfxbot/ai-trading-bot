@@ -237,7 +237,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
             pair = symbol.replace("/","")
 
-            text = (
+           text = (
     f"📊 {pair} – {signal}\n\n"
     f"Entry: {entry:.5f}\n"
     f"SL: {sl:.5f}\n"
