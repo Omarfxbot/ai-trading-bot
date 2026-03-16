@@ -243,7 +243,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 Entry: {entry:.5f}
 
 ⚡ Quick Copy
-`{pair} {signal} {entry:.5f}`
+`{pair} {signal} {entry:.5f}` SL {sl:.5f} TP {tp:.5f}
 """
 
             keyboard = InlineKeyboardMarkup([
