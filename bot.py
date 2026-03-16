@@ -268,7 +268,7 @@ else:
             )
 
             cur.execute(
-                "INSERT INTO daily_signals(symbol,direction) VALUES(%s,%s)",
+                "INSERT INTO daily_signals(symbol, direction) VALUES(%s,%s)",
                 (symbol,signal)
             )
 
