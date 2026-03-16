@@ -218,12 +218,10 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
             if not signal:
                 continue
 
-            cur.execute("""
-            SELECT created_at FROM daily_signals
-            WHERE direction=%s AND symbol=%s
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,(signal,symbol))
+            cur.execute(
+    "SELECT created_at FROM daily_signals WHERE direction=%s AND symbol=%s ORDER BY created_at DESC LIMIT 1",
+    (signal, symbol)
+)
 
             last_signal = cur.fetchone()
 
