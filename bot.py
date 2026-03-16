@@ -33,9 +33,10 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         return
 
     if hour < 7 or hour > 22:
+        print("Outside London/NY session")
         return
-
     try:
+        print("Checking: XAU/USD")
         news = requests.get(
             "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
             timeout=5
