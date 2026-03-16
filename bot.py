@@ -233,6 +233,18 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
             entry = last["close"]
 
+atr_val = last["atr"]
+
+sl_distance = atr_val * 1.2
+tp_distance = sl_distance * 2
+
+if signal == "BUY":
+    sl = entry - sl_distance
+    tp = entry + tp_distance
+else:
+    sl = entry + sl_distance
+    tp = entry - tp_distance
+
             pair = symbol.replace("/","")
 
             text = (
