@@ -14,10 +14,10 @@ signals_today = 0
 today_date = datetime.utcnow().date()
 
 
-# ---------- GET GOLD DATA ----------
-def get_gold_data():
+# ---------- GET DATA ----------
+def get_data(symbol):
 
-    url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=5min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=5min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
 
     r = requests.get(url)
     data = r.json()
@@ -34,7 +34,7 @@ def get_gold_data():
     return df
 
 
-# ---------- TREND FILTER ----------
+# ---------- TREND ----------
 def trend_filter(df):
 
     ema50 = df["close"].ewm(span=50).mean().iloc[-1]
@@ -49,30 +49,23 @@ def trend_filter(df):
     return None
 
 
-# ---------- ATR VOLATILITY ----------
+# ---------- ATR ----------
 def atr_filter(df):
 
     df["tr"] = df["high"] - df["low"]
     atr = df["tr"].rolling(14).mean().iloc[-1]
 
-    if atr < 1.5:
-        return False
-
-    return True
+    return atr >= 1.5
 
 
-# ---------- SPREAD FILTER ----------
+# ---------- SPREAD ----------
 def spread_filter(df):
 
     spread = abs(df["high"].iloc[-1] - df["low"].iloc[-1])
-
-    if spread > 3:
-        return False
-
-    return True
+    return spread <= 3
 
 
-# ---------- LIQUIDITY SWEEP ----------
+# ---------- LIQUIDITY ----------
 def liquidity_sweep(df):
 
     high_prev = df["high"].iloc[-20:-1].max()
@@ -89,55 +82,50 @@ def liquidity_sweep(df):
     return None
 
 
-# ---------- MOMENTUM CANDLE ----------
+# ---------- MOMENTUM ----------
 def momentum_candle(df):
 
     last = df.iloc[-1]
 
     body = abs(last["close"] - last["open"])
-    candle_range = last["high"] - last["low"]
+    rng = last["high"] - last["low"]
 
-    if candle_range == 0:
+    if rng == 0:
         return False
 
-    strength = body / candle_range
-
-    return strength > 0.6
+    return (body / rng) > 0.6
 
 
-# ---------- SMART MONEY ORDER BLOCK ----------
+# ---------- ORDER BLOCK ----------
 def order_block(df):
 
     impulse = df.iloc[-2]
     base = df.iloc[-3]
 
     body = abs(impulse["close"] - impulse["open"])
-    range_candle = impulse["high"] - impulse["low"]
+    rng = impulse["high"] - impulse["low"]
 
-    if range_candle == 0:
+    if rng == 0:
         return None
 
-    strength = body / range_candle
+    strength = body / rng
 
     if strength < 0.6:
         return None
 
-    if impulse["close"] > impulse["open"]:
-        if base["close"] < base["open"]:
-            return "BUY"
+    if impulse["close"] > impulse["open"] and base["close"] < base["open"]:
+        return "BUY"
 
-    if impulse["close"] < impulse["open"]:
-        if base["close"] > base["open"]:
-            return "SELL"
+    if impulse["close"] < impulse["open"] and base["close"] > base["open"]:
+        return "SELL"
 
     return None
 
 
-# ---------- NEWS FILTER ----------
+# ---------- NEWS ----------
 def news_filter():
 
     try:
-
         news = requests.get(
             "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
             timeout=5
@@ -166,24 +154,21 @@ def news_filter():
 
 
 # ---------- BUILD SIGNAL ----------
-def build_signal(direction, price):
+def build_signal(symbol, direction, price):
 
     if direction == "BUY":
-
         sl = price - 8
         tp1 = price + 6
         tp2 = price + 12
         tp3 = price + 18
-
     else:
-
         sl = price + 8
         tp1 = price - 6
         tp2 = price - 12
         tp3 = price - 18
 
-    text = f"""
-📊 XAUUSD – {direction}
+    return f"""
+📊 {symbol.replace('/', '')} – {direction}
 
 Entry: {price:.2f}
 SL: {sl:.2f}
@@ -193,24 +178,22 @@ TP2: {tp2:.2f}
 TP3: {tp3:.2f}
 
 ⚡ Quick Copy:
-XAUUSD {direction} SL {sl:.2f} TP {tp1:.2f}
+{symbol.replace('/', '')} {direction} SL {sl:.2f} TP {tp1:.2f}
 """
 
-    return text
 
-
-# ---------- MAIN SIGNAL ENGINE ----------
+# ---------- ENGINE ----------
 async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
-    global signals_today
-    global today_date
+    global signals_today, today_date
+
+    symbols = ["XAU/USD", "EUR/USD"]
 
     now = datetime.utcnow()
     hour = now.hour
     today = now.date()
 
     if today_date != today:
-
         signals_today = 0
         today_date = today
 
@@ -223,52 +206,53 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     if not news_filter():
         return
 
-    print("Checking: XAU/USD")
+    for symbol in symbols:
 
-    try:
+        print("Checking:", symbol)
 
-        df = get_gold_data()
+        try:
+            df = get_data(symbol)
+        except:
+            continue
 
-    except Exception as e:
+        if not atr_filter(df):
+            continue
 
-        print("Data error:", e)
-        return
+        if not spread_filter(df):
+            continue
 
-    if not atr_filter(df):
-        return
+        trend = trend_filter(df)
+        sweep = liquidity_sweep(df)
+        momentum = momentum_candle(df)
+        ob = order_block(df)
 
-    if not spread_filter(df):
-        return
+        if trend is None:
+            continue
 
-    trend = trend_filter(df)
-    sweep = liquidity_sweep(df)
-    momentum = momentum_candle(df)
-    ob = order_block(df)
+        if sweep != trend:
+            continue
 
-    if trend is None:
-        return
+        if not momentum:
+            continue
 
-    if sweep != trend:
-        return
+        if ob != trend:
+            continue
 
-    if not momentum:
-        return
+        price = df["close"].iloc[-1]
 
-    if ob != trend:
-        return
+        text = build_signal(symbol, trend, price)
 
-    price = df["close"].iloc[-1]
+        await context.bot.send_message(
+            chat_id=VIP_CHANNEL,
+            text=text
+        )
 
-    text = build_signal(trend, price)
+        signals_today += 1
 
-    await context.bot.send_message(
-        chat_id=VIP_CHANNEL,
-        text=text
-    )
+        print("Signal sent:", symbol, trend)
 
-    signals_today += 1
-
-    print("Signal sent:", trend)
+        if signals_today >= MAX_SIGNALS:
+            break
 
 
 # ---------- BOT ----------
@@ -280,6 +264,6 @@ app.job_queue.run_repeating(
     first=10
 )
 
-print("AI GOLD BOT ELITE STARTED")
+print("AI BOT STARTED")
 
 app.run_polling()
