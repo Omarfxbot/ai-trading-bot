@@ -9,7 +9,7 @@ TWELVEDATA_API_KEY = os.getenv("TWELVEDATA_API_KEY")
 
 VIP_CHANNEL = "@OmarSwingVIP"
 
-MAX_SIGNALS = 4
+MAX_SIGNALS = 3
 signals_today = 0
 today_date = datetime.utcnow().date()
 
@@ -55,17 +55,18 @@ def atr_filter(df):
     df["tr"] = df["high"] - df["low"]
     atr = df["tr"].rolling(14).mean().iloc[-1]
 
-    return atr >= 1.5
+    return atr > 1.5
 
 
 # ---------- SPREAD ----------
 def spread_filter(df):
 
     spread = abs(df["high"].iloc[-1] - df["low"].iloc[-1])
-    return spread <= 3
+
+    return spread < 3
 
 
-# ---------- LIQUIDITY ----------
+# ---------- SWEEP ----------
 def liquidity_sweep(df):
 
     high_prev = df["high"].iloc[-20:-1].max()
@@ -153,32 +154,36 @@ def news_filter():
     return True
 
 
-# ---------- BUILD SIGNAL ----------
+# ---------- BUILD ----------
 def build_signal(symbol, direction, price):
 
-    if direction == "BUY":
-        sl = price - 8
-        tp1 = price + 6
-        tp2 = price + 12
-        tp3 = price + 18
+    if symbol == "XAU/USD":
+        sl_pips = 8
+        tp_pips = [6, 12, 18]
     else:
-        sl = price + 8
-        tp1 = price - 6
-        tp2 = price - 12
-        tp3 = price - 18
+        sl_pips = 0.0020
+        tp_pips = [0.0015, 0.0030, 0.0045]
+
+    if direction == "BUY":
+        sl = price - sl_pips
+        tp1 = price + tp_pips[0]
+        tp2 = price + tp_pips[1]
+        tp3 = price + tp_pips[2]
+    else:
+        sl = price + sl_pips
+        tp1 = price - tp_pips[0]
+        tp2 = price - tp_pips[1]
+        tp3 = price - tp_pips[2]
 
     return f"""
-📊 {symbol.replace('/', '')} – {direction}
+📊 {symbol} – {direction}
 
-Entry: {price:.2f}
-SL: {sl:.2f}
+Entry: {price:.5f}
+SL: {sl:.5f}
 
-TP1: {tp1:.2f}
-TP2: {tp2:.2f}
-TP3: {tp3:.2f}
-
-⚡ Quick Copy:
-{symbol.replace('/', '')} {direction} SL {sl:.2f} TP {tp1:.2f}
+TP1: {tp1:.5f}
+TP2: {tp2:.5f}
+TP3: {tp3:.5f}
 """
 
 
@@ -187,10 +192,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
     global signals_today, today_date
 
-    symbols = ["XAU/USD", "EUR/USD"]
-
     now = datetime.utcnow()
-    hour = now.hour
     today = now.date()
 
     if today_date != today:
@@ -200,13 +202,13 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     if signals_today >= MAX_SIGNALS:
         return
 
-    if hour < 7 or hour > 22:
+    if now.hour < 7 or now.hour > 22:
         return
 
     if not news_filter():
         return
 
-    for symbol in symbols:
+    for symbol in ["XAU/USD", "EUR/USD"]:
 
         print("Checking:", symbol)
 
@@ -229,7 +231,8 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         if trend is None:
             continue
 
-        if sweep != trend:
+        # 🔥 التعديل المهم
+        if sweep is None:
             continue
 
         if not momentum:
@@ -242,10 +245,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
         text = build_signal(symbol, trend, price)
 
-        await context.bot.send_message(
-            chat_id=VIP_CHANNEL,
-            text=text
-        )
+        await context.bot.send_message(chat_id=VIP_CHANNEL, text=text)
 
         signals_today += 1
 
@@ -258,12 +258,8 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 # ---------- BOT ----------
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-app.job_queue.run_repeating(
-    check_signal,
-    interval=300,
-    first=10
-)
+app.job_queue.run_repeating(check_signal, interval=300, first=10)
 
-print("AI BOT STARTED")
+print("AI BOT RUNNING (XAU + EUR)")
 
 app.run_polling()
