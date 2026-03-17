@@ -159,6 +159,6 @@ print("Affiliate Funnel Bot Running")
 
 app.run_polling(
     drop_pending_updates=True,
-    allowed_updates=Update.ALL_TYPES
+    close_loop=False
 )
 
