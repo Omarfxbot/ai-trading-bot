@@ -55,7 +55,10 @@ def atr_filter(df):
     df["tr"] = df["high"] - df["low"]
     atr = df["tr"].rolling(14).mean().iloc[-1]
 
-    return atr > 1.5
+    if atr < 1.0:
+        return False
+
+    return True
 
 
 # ---------- SPREAD ----------
@@ -63,10 +66,13 @@ def spread_filter(df):
 
     spread = abs(df["high"].iloc[-1] - df["low"].iloc[-1])
 
-    return spread < 3
+    if spread > 3:
+        return False
+
+    return True
 
 
-# ---------- SWEEP ----------
+# ---------- LIQUIDITY ----------
 def liquidity_sweep(df):
 
     high_prev = df["high"].iloc[-20:-1].max()
@@ -89,12 +95,14 @@ def momentum_candle(df):
     last = df.iloc[-1]
 
     body = abs(last["close"] - last["open"])
-    rng = last["high"] - last["low"]
+    candle_range = last["high"] - last["low"]
 
-    if rng == 0:
+    if candle_range == 0:
         return False
 
-    return (body / rng) > 0.6
+    strength = body / candle_range
+
+    return strength > 0.5
 
 
 # ---------- ORDER BLOCK ----------
@@ -104,21 +112,23 @@ def order_block(df):
     base = df.iloc[-3]
 
     body = abs(impulse["close"] - impulse["open"])
-    rng = impulse["high"] - impulse["low"]
+    range_candle = impulse["high"] - impulse["low"]
 
-    if rng == 0:
+    if range_candle == 0:
         return None
 
-    strength = body / rng
+    strength = body / range_candle
 
-    if strength < 0.6:
+    if strength < 0.5:
         return None
 
-    if impulse["close"] > impulse["open"] and base["close"] < base["open"]:
-        return "BUY"
+    if impulse["close"] > impulse["open"]:
+        if base["close"] < base["open"]:
+            return "BUY"
 
-    if impulse["close"] < impulse["open"] and base["close"] > base["open"]:
-        return "SELL"
+    if impulse["close"] < impulse["open"]:
+        if base["close"] > base["open"]:
+            return "SELL"
 
     return None
 
@@ -154,10 +164,10 @@ def news_filter():
     return True
 
 
-# ---------- BUILD ----------
+# ---------- SIGNAL ----------
 def build_signal(symbol, direction, price):
 
-    if symbol == "XAU/USD":
+    if "XAU" in symbol:
         sl_pips = 8
         tp_pips = [6, 12, 18]
     else:
@@ -176,7 +186,7 @@ def build_signal(symbol, direction, price):
         tp3 = price - tp_pips[2]
 
     return f"""
-📊 {symbol} – {direction}
+📊 {symbol.replace('/', '')} – {direction}
 
 Entry: {price:.5f}
 SL: {sl:.5f}
@@ -193,22 +203,25 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     global signals_today, today_date
 
     now = datetime.utcnow()
+    hour = now.hour
     today = now.date()
 
-    if today_date != today:
+    if today != today_date:
         signals_today = 0
         today_date = today
 
     if signals_today >= MAX_SIGNALS:
         return
 
-    if now.hour < 7 or now.hour > 22:
+    if hour < 7 or hour > 22:
         return
 
     if not news_filter():
         return
 
-    for symbol in ["XAU/USD", "EUR/USD"]:
+    symbols = ["XAU/USD", "EUR/USD"]
+
+    for symbol in symbols:
 
         print("Checking:", symbol)
 
@@ -231,35 +244,40 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         if trend is None:
             continue
 
-        # 🔥 التعديل المهم
-        if sweep is None:
+        if sweep != trend:
             continue
 
         if not momentum:
             continue
 
-        if ob != trend:
+        if ob and ob != trend:
             continue
 
         price = df["close"].iloc[-1]
 
         text = build_signal(symbol, trend, price)
 
-        await context.bot.send_message(chat_id=VIP_CHANNEL, text=text)
+        await context.bot.send_message(
+            chat_id=VIP_CHANNEL,
+            text=text
+        )
 
         signals_today += 1
 
         print("Signal sent:", symbol, trend)
 
-        if signals_today >= MAX_SIGNALS:
-            break
+        break
 
 
 # ---------- BOT ----------
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-app.job_queue.run_repeating(check_signal, interval=300, first=10)
+app.job_queue.run_repeating(
+    check_signal,
+    interval=300,
+    first=10
+)
 
-print("AI BOT RUNNING (XAU + EUR)")
+print("AI BOT RUNNING (BALANCED MODE)")
 
 app.run_polling()
