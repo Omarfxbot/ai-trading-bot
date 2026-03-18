@@ -90,36 +90,42 @@ def momentum_candle(df):
 
 
 # ---------- SIGNAL ----------
-def build_signal(symbol, direction, price):
+def parse_signal(text):
 
-    if symbol == "XAU/USD":
-        sl_dist = 8
-        tp_dist = [6, 12, 18]
-    else:
-        sl_dist = 0.0020
-        tp_dist = [0.0015, 0.0030, 0.0045]
+    # normalize
+    text = text.replace("/", "").upper()
 
-    if direction == "BUY":
-        sl = price - sl_dist
-        tp1 = price + tp_dist[0]
-        tp2 = price + tp_dist[1]
-        tp3 = price + tp_dist[2]
-    else:
-        sl = price + sl_dist
-        tp1 = price - tp_dist[0]
-        tp2 = price - tp_dist[1]
-        tp3 = price - tp_dist[2]
+    # SYMBOL + ACTION
+    symbol = re.search(r"(XAUUSD|EURUSD)", text)
+    action = re.search(r"\b(BUY|SELL)\b", text)
 
-    return f"""
-📊 {symbol} – {direction}
+    # SL
+    sl = re.search(r"SL[:\s]*([\d.]+)", text)
 
-Entry: {price:.5f}
-SL: {sl:.5f}
+    # TP واحد (ماشي TP1)
+    tp = re.search(r"\bTP(?!\d)[:\s]*([\d.]+)", text)
 
-TP1: {tp1:.5f}
-TP2: {tp2:.5f}
-TP3: {tp3:.5f}
-"""
+    # TP متعدد
+    tp1 = re.search(r"TP1[:\s]*([\d.]+)", text)
+    tp2 = re.search(r"TP2[:\s]*([\d.]+)", text)
+    tp3 = re.search(r"TP3[:\s]*([\d.]+)", text)
+
+    # ENTRY (اختياري للمستقبل)
+    entry = re.search(r"ENTRY[:\s]*([\d.]+)", text)
+
+    if not symbol or not action or not sl:
+        return None
+
+    return (
+        symbol.group(1),
+        action.group(1),
+        float(sl.group(1)),
+        float(tp.group(1)) if tp else None,
+        float(tp1.group(1)) if tp1 else None,
+        float(tp2.group(1)) if tp2 else None,
+        float(tp3.group(1)) if tp3 else None,
+        float(entry.group(1)) if entry else None,  # optional
+    )
 
 
 # ---------- ENGINE ----------
