@@ -42,7 +42,6 @@ def trend_filter(df):
 
     if ema50 > ema200:
         return "BUY"
-
     if ema50 < ema200:
         return "SELL"
 
@@ -55,24 +54,17 @@ def atr_filter(df):
     df["tr"] = df["high"] - df["low"]
     atr = df["tr"].rolling(14).mean().iloc[-1]
 
-    if atr < 1.0:
-        return False
-
-    return True
+    return atr > 1.0   # كان 1.5 دابا خففنا
 
 
 # ---------- SPREAD ----------
 def spread_filter(df):
 
     spread = abs(df["high"].iloc[-1] - df["low"].iloc[-1])
-
-    if spread > 3:
-        return False
-
-    return True
+    return spread < 5   # كان 3 دابا خففنا
 
 
-# ---------- LIQUIDITY ----------
+# ---------- SWEEP ----------
 def liquidity_sweep(df):
 
     high_prev = df["high"].iloc[-20:-1].max()
@@ -80,10 +72,10 @@ def liquidity_sweep(df):
 
     last = df.iloc[-1]
 
-    if last["high"] > high_prev and last["close"] < last["open"]:
+    if last["high"] > high_prev:
         return "SELL"
 
-    if last["low"] < low_prev and last["close"] > last["open"]:
+    if last["low"] < low_prev:
         return "BUY"
 
     return None
@@ -102,25 +94,14 @@ def momentum_candle(df):
 
     strength = body / candle_range
 
-    return strength > 0.5
+    return strength > 0.5   # كان 0.6
 
 
-# ---------- ORDER BLOCK ----------
+# ---------- ORDER BLOCK (اختياري) ----------
 def order_block(df):
 
     impulse = df.iloc[-2]
     base = df.iloc[-3]
-
-    body = abs(impulse["close"] - impulse["open"])
-    range_candle = impulse["high"] - impulse["low"]
-
-    if range_candle == 0:
-        return None
-
-    strength = body / range_candle
-
-    if strength < 0.5:
-        return None
 
     if impulse["close"] > impulse["open"]:
         if base["close"] < base["open"]:
@@ -133,67 +114,38 @@ def order_block(df):
     return None
 
 
-# ---------- NEWS ----------
-def news_filter():
-
-    try:
-        news = requests.get(
-            "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
-            timeout=5
-        ).json()
-
-        now = datetime.utcnow()
-
-        for event in news:
-
-            if event.get("impact") != "High":
-                continue
-
-            event_time = datetime.fromisoformat(
-                event["date"].replace("Z", "+00:00")
-            ).replace(tzinfo=None)
-
-            diff = abs((event_time - now).total_seconds())
-
-            if diff < 1800:
-                return False
-
-    except:
-        pass
-
-    return True
-
-
-# ---------- SIGNAL ----------
+# ---------- BUILD SIGNAL ----------
 def build_signal(symbol, direction, price):
 
-    if "XAU" in symbol:
+    if symbol == "XAU/USD":
         sl_pips = 8
-        tp_pips = [6, 12, 18]
+        tp_pips = 6
+        digits = 2
     else:
         sl_pips = 0.0020
-        tp_pips = [0.0015, 0.0030, 0.0045]
+        tp_pips = 0.0015
+        digits = 5
 
     if direction == "BUY":
         sl = price - sl_pips
-        tp1 = price + tp_pips[0]
-        tp2 = price + tp_pips[1]
-        tp3 = price + tp_pips[2]
+        tp1 = price + tp_pips
+        tp2 = price + tp_pips * 2
     else:
         sl = price + sl_pips
-        tp1 = price - tp_pips[0]
-        tp2 = price - tp_pips[1]
-        tp3 = price - tp_pips[2]
+        tp1 = price - tp_pips
+        tp2 = price - tp_pips * 2
 
     return f"""
-📊 {symbol.replace('/', '')} – {direction}
+📊 {symbol} – {direction}
 
-Entry: {price:.5f}
-SL: {sl:.5f}
+Entry: {round(price, digits)}
+SL: {round(sl, digits)}
 
-TP1: {tp1:.5f}
-TP2: {tp2:.5f}
-TP3: {tp3:.5f}
+TP1: {round(tp1, digits)}
+TP2: {round(tp2, digits)}
+
+⚡ Quick Copy:
+{symbol} {direction}
 """
 
 
@@ -206,7 +158,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     hour = now.hour
     today = now.date()
 
-    if today != today_date:
+    if today_date != today:
         signals_today = 0
         today_date = today
 
@@ -216,14 +168,9 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     if hour < 7 or hour > 22:
         return
 
-    if not news_filter():
-        return
+    for symbol in ["XAU/USD", "EUR/USD"]:
 
-    symbols = ["XAU/USD", "EUR/USD"]
-
-    for symbol in symbols:
-
-        print("Checking:", symbol)
+        print(f"Checking: {symbol}")
 
         try:
             df = get_data(symbol)
@@ -244,12 +191,14 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         if trend is None:
             continue
 
+        # ⚡ Balance Logic
         if sweep != trend:
             continue
 
         if not momentum:
             continue
 
+        # ⚡ order block ماشي ضروري
         if ob and ob != trend:
             continue
 
@@ -266,7 +215,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
         print("Signal sent:", symbol, trend)
 
-        break
+        break   # باش مايبعثش بجوج فمرة وحدة
 
 
 # ---------- BOT ----------
@@ -278,6 +227,6 @@ app.job_queue.run_repeating(
     first=10
 )
 
-print("AI BOT RUNNING (BALANCED MODE)")
+print("AI BOT BALANCE MODE STARTED")
 
 app.run_polling()
