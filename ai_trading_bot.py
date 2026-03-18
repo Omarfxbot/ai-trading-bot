@@ -42,20 +42,20 @@ def trend_filter(df):
 
     if ema50 > ema200:
         return "BUY"
-
-    if ema50 < ema200:
+    elif ema50 < ema200:
         return "SELL"
 
     return None
 
 
-# ---------- ATR ----------
+# ---------- ATR (SMART) ----------
 def atr_filter(df):
 
     df["tr"] = df["high"] - df["low"]
     atr = df["tr"].rolling(14).mean().iloc[-1]
+    avg_atr = df["tr"].rolling(50).mean().iloc[-1]
 
-    return atr > 0.5
+    return atr > avg_atr
 
 
 # ---------- SWEEP ----------
@@ -89,43 +89,29 @@ def momentum_candle(df):
     return (body / candle_range) > 0.5
 
 
-# ---------- SIGNAL ----------
-def parse_signal(text):
+# ---------- BUILD SIGNAL ----------
+def build_signal(symbol, direction, price, df):
 
-    # normalize
-    text = text.replace("/", "").upper()
+    sl_distance = df["high"].iloc[-10:].max() - df["low"].iloc[-10:].min()
 
-    # SYMBOL + ACTION
-    symbol = re.search(r"(XAUUSD|EURUSD)", text)
-    action = re.search(r"\b(BUY|SELL)\b", text)
+    if direction == "BUY":
+        sl = price - sl_distance
+        tp1 = price + sl_distance
+        tp2 = price + (sl_distance * 2)
+        tp3 = price + (sl_distance * 3)
+    else:
+        sl = price + sl_distance
+        tp1 = price - sl_distance
+        tp2 = price - (sl_distance * 2)
+        tp3 = price - (sl_distance * 3)
 
-    # SL
-    sl = re.search(r"SL[:\s]*([\d.]+)", text)
+    symbol = symbol.replace("/", "")
 
-    # TP واحد (ماشي TP1)
-    tp = re.search(r"\bTP(?!\d)[:\s]*([\d.]+)", text)
-
-    # TP متعدد
-    tp1 = re.search(r"TP1[:\s]*([\d.]+)", text)
-    tp2 = re.search(r"TP2[:\s]*([\d.]+)", text)
-    tp3 = re.search(r"TP3[:\s]*([\d.]+)", text)
-
-    # ENTRY (اختياري للمستقبل)
-    entry = re.search(r"ENTRY[:\s]*([\d.]+)", text)
-
-    if not symbol or not action or not sl:
-        return None
-
-    return (
-        symbol.group(1),
-        action.group(1),
-        float(sl.group(1)),
-        float(tp.group(1)) if tp else None,
-        float(tp1.group(1)) if tp1 else None,
-        float(tp2.group(1)) if tp2 else None,
-        float(tp3.group(1)) if tp3 else None,
-        float(entry.group(1)) if entry else None,  # optional
-    )
+    return f"""{symbol} {direction}
+SL: {round(sl,2)}
+TP1: {round(tp1,2)}
+TP2: {round(tp2,2)}
+TP3: {round(tp3,2)}"""
 
 
 # ---------- ENGINE ----------
@@ -158,26 +144,31 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         except:
             continue
 
-        if not atr_filter(df):
-            continue
-
         trend = trend_filter(df)
         sweep = liquidity_sweep(df)
         momentum = momentum_candle(df)
 
-        if trend is None:
-            continue
+        # ---------- SCORING ----------
+        score = 0
 
-        if sweep != trend:
-            continue
+        if trend:
+            score += 2
 
-        # ⚡ خففنا الشرط هنا
-        if not momentum:
-            pass  # ما نوقفوش السيگنال
+        if sweep == trend:
+            score += 2
+
+        if momentum:
+            score += 1
+
+        if atr_filter(df):
+            score += 1
+
+        if score < 4:
+            continue
 
         price = df["close"].iloc[-1]
 
-        text = build_signal(symbol, trend, price)
+        text = build_signal(symbol, trend, price, df)
 
         await context.bot.send_message(
             chat_id=VIP_CHANNEL,
@@ -201,6 +192,6 @@ app.job_queue.run_repeating(
     first=10
 )
 
-print("AI BOT BALANCE MODE STARTED")
+print("🔥 AI BOT PRO STARTED")
 
 app.run_polling()
