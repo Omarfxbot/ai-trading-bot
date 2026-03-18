@@ -192,7 +192,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
             continue
 
         # ⚡ Balance Logic
-        if sweep != trend:
+        if sweep is None:
             continue
 
         if not momentum:
