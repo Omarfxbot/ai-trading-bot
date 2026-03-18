@@ -1,13 +1,11 @@
 import os
 import requests
 import pandas as pd
-import psycopg2
 from datetime import datetime
 from telegram.ext import ApplicationBuilder, ContextTypes
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 TWELVEDATA_API_KEY = os.getenv("TWELVEDATA_API_KEY")
-DATABASE_URL = os.getenv("DATABASE_URL")
 
 VIP_CHANNEL = "@OmarSwingVIP"
 
@@ -15,113 +13,113 @@ MAX_SIGNALS = 3
 signals_today = 0
 today_date = datetime.utcnow().date()
 
-# ---------- DB ----------
-conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-cur = conn.cursor()
-
-cur.execute("""
-CREATE TABLE IF NOT EXISTS signals_ai (
-id SERIAL PRIMARY KEY,
-symbol TEXT,
-direction TEXT,
-entry FLOAT,
-sl FLOAT,
-tp FLOAT,
-result TEXT,
-created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-""")
-conn.commit()
-
 
 # ---------- GET DATA ----------
-def get_data(symbol, interval):
-    try:
-        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize=200&apikey={TWELVEDATA_API_KEY}"
-        r = requests.get(url, timeout=10)
-        data = r.json()
+def get_data(symbol):
 
-        if "values" not in data:
-            return None
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=5min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
 
-        df = pd.DataFrame(data["values"])
+    r = requests.get(url)
+    data = r.json()
 
-        for col in ["open","high","low","close"]:
-            df[col] = df[col].astype(float)
+    df = pd.DataFrame(data["values"])
 
-        df = df.iloc[::-1]
-        return df
-    except:
-        return None
+    df["open"] = df["open"].astype(float)
+    df["high"] = df["high"].astype(float)
+    df["low"] = df["low"].astype(float)
+    df["close"] = df["close"].astype(float)
+
+    df = df.iloc[::-1]
+
+    return df
 
 
 # ---------- TREND ----------
-def trend(df):
+def trend_filter(df):
+
     ema50 = df["close"].ewm(span=50).mean().iloc[-1]
     ema200 = df["close"].ewm(span=200).mean().iloc[-1]
 
     if ema50 > ema200:
         return "BUY"
+
     if ema50 < ema200:
         return "SELL"
+
     return None
 
 
-# ---------- MOMENTUM ----------
-def strong_candle(df):
-    last = df.iloc[-1]
-    body = abs(last["close"] - last["open"])
-    rng = last["high"] - last["low"]
+# ---------- ATR ----------
+def atr_filter(df):
 
-    if rng == 0:
-        return False
+    df["tr"] = df["high"] - df["low"]
+    atr = df["tr"].rolling(14).mean().iloc[-1]
 
-    return (body / rng) > 0.6
+    return atr > 0.5
 
 
-# ---------- STRUCTURE ----------
-def break_structure(df):
+# ---------- SWEEP ----------
+def liquidity_sweep(df):
+
     high_prev = df["high"].iloc[-20:-1].max()
     low_prev = df["low"].iloc[-20:-1].min()
 
     last = df.iloc[-1]
 
-    if last["close"] > high_prev:
-        return "BUY"
-    if last["close"] < low_prev:
+    if last["high"] > high_prev and last["close"] < last["open"]:
         return "SELL"
+
+    if last["low"] < low_prev and last["close"] > last["open"]:
+        return "BUY"
 
     return None
 
 
-# ---------- BUILD ----------
+# ---------- MOMENTUM ----------
+def momentum_candle(df):
+
+    last = df.iloc[-1]
+
+    body = abs(last["close"] - last["open"])
+    candle_range = last["high"] - last["low"]
+
+    if candle_range == 0:
+        return False
+
+    return (body / candle_range) > 0.5
+
+
+# ---------- SIGNAL ----------
 def build_signal(symbol, direction, price):
 
-    if symbol == "EUR/USD":
-        sl_dist = 0.002
-        tp_dist = 0.004
+    if symbol == "XAU/USD":
+        sl_dist = 8
+        tp_dist = [6, 12, 18]
     else:
-        sl_dist = 10
-        tp_dist = 12
+        sl_dist = 0.0020
+        tp_dist = [0.0015, 0.0030, 0.0045]
 
     if direction == "BUY":
         sl = price - sl_dist
-        tp = price + tp_dist
+        tp1 = price + tp_dist[0]
+        tp2 = price + tp_dist[1]
+        tp3 = price + tp_dist[2]
     else:
         sl = price + sl_dist
-        tp = price - tp_dist
+        tp1 = price - tp_dist[0]
+        tp2 = price - tp_dist[1]
+        tp3 = price - tp_dist[2]
 
-    text = f"""
+    return f"""
 📊 {symbol} – {direction}
 
-Entry: {round(price,5)}
-SL: {round(sl,5)}
-TP: {round(tp,5)}
+Entry: {price:.5f}
+SL: {sl:.5f}
 
-🔥 Strong Setup
+TP1: {tp1:.5f}
+TP2: {tp2:.5f}
+TP3: {tp3:.5f}
 """
-
-    return text, sl, tp
 
 
 # ---------- ENGINE ----------
@@ -133,7 +131,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     hour = now.hour
     today = now.date()
 
-    if today != today_date:
+    if today_date != today:
         signals_today = 0
         today_date = today
 
@@ -143,53 +141,46 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     if hour < 7 or hour > 22:
         return
 
-    pairs = ["XAU/USD", "EUR/USD"]
+    symbols = ["XAU/USD", "EUR/USD"]
 
-    for pair in pairs:
+    for symbol in symbols:
 
-        print(f"Checking: {pair}")
+        print(f"Checking: {symbol}")
 
-        df_m5 = get_data(pair, "5min")
-        df_h1 = get_data(pair, "1h")
-
-        if df_m5 is None or df_h1 is None:
+        try:
+            df = get_data(symbol)
+        except:
             continue
 
-        trend_m5 = trend(df_m5)
-        trend_h1 = trend(df_h1)
-
-        if trend_m5 != trend_h1:
+        if not atr_filter(df):
             continue
 
-        structure = break_structure(df_m5)
+        trend = trend_filter(df)
+        sweep = liquidity_sweep(df)
+        momentum = momentum_candle(df)
 
-        if structure != trend_m5:
+        if trend is None:
             continue
 
-        if not strong_candle(df_m5):
+        if sweep != trend:
             continue
 
-        price = df_m5["close"].iloc[-1]
+        # ⚡ خففنا الشرط هنا
+        if not momentum:
+            pass  # ما نوقفوش السيگنال
 
-        text, sl, tp = build_signal(pair, trend_m5, price)
+        price = df["close"].iloc[-1]
 
-        # إرسال Telegram
+        text = build_signal(symbol, trend, price)
+
         await context.bot.send_message(
             chat_id=VIP_CHANNEL,
             text=text
         )
 
-        # تخزين ف database
-        cur.execute("""
-        INSERT INTO signals_ai (symbol, direction, entry, sl, tp)
-        VALUES (%s, %s, %s, %s, %s)
-        """, (pair, trend_m5, price, sl, tp))
-
-        conn.commit()
-
         signals_today += 1
 
-        print("Saved & Sent:", pair, trend_m5)
+        print("Signal sent:", symbol, trend)
 
         if signals_today >= MAX_SIGNALS:
             break
@@ -204,6 +195,6 @@ app.job_queue.run_repeating(
     first=10
 )
 
-print("AI BOT + STORAGE STARTED")
+print("AI BOT BALANCE MODE STARTED")
 
 app.run_polling()
