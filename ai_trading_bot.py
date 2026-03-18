@@ -92,13 +92,17 @@ def momentum_candle(df):
 # ---------- BUILD SIGNAL ----------
 def build_signal(symbol, direction, price, df):
 
-    sl_distance = df["high"].iloc[-10:].max() - df["low"].iloc[-10:].min()
+    atr = (df["high"] - df["low"]).rolling(14).mean().iloc[-1]
+
+    # distance ذكي
+    sl_distance = atr * 2
 
     if direction == "BUY":
         sl = price - sl_distance
         tp1 = price + sl_distance
         tp2 = price + (sl_distance * 2)
         tp3 = price + (sl_distance * 3)
+
     else:
         sl = price + sl_distance
         tp1 = price - sl_distance
@@ -108,10 +112,10 @@ def build_signal(symbol, direction, price, df):
     symbol = symbol.replace("/", "")
 
     return f"""{symbol} {direction}
-SL: {round(sl,2)}
-TP1: {round(tp1,2)}
-TP2: {round(tp2,2)}
-TP3: {round(tp3,2)}"""
+SL: {round(sl,5)}
+TP1: {round(tp1,5)}
+TP2: {round(tp2,5)}
+TP3: {round(tp3,5)}"""
 
 
 # ---------- ENGINE ----------
