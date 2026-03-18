@@ -17,26 +17,31 @@ today_date = datetime.utcnow().date()
 # ---------- GET DATA ----------
 def get_data(symbol):
 
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=5min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
+    try:
+        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=5min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
+        r = requests.get(url, timeout=10)
+        data = r.json()
 
-    r = requests.get(url)
-    data = r.json()
+        if "values" not in data:
+            return None
 
-    df = pd.DataFrame(data["values"])
+        df = pd.DataFrame(data["values"])
 
-    df["open"] = df["open"].astype(float)
-    df["high"] = df["high"].astype(float)
-    df["low"] = df["low"].astype(float)
-    df["close"] = df["close"].astype(float)
+        df["open"] = df["open"].astype(float)
+        df["high"] = df["high"].astype(float)
+        df["low"] = df["low"].astype(float)
+        df["close"] = df["close"].astype(float)
 
-    df = df.iloc[::-1]
+        df = df.iloc[::-1]
 
-    return df
+        return df
+
+    except:
+        return None
 
 
 # ---------- TREND ----------
 def trend_filter(df):
-
     ema50 = df["close"].ewm(span=50).mean().iloc[-1]
     ema200 = df["close"].ewm(span=200).mean().iloc[-1]
 
@@ -48,104 +53,48 @@ def trend_filter(df):
     return None
 
 
-# ---------- ATR ----------
+# ---------- VOLATILITY ----------
 def atr_filter(df):
-
     df["tr"] = df["high"] - df["low"]
     atr = df["tr"].rolling(14).mean().iloc[-1]
-
-    return atr > 1.0   # كان 1.5 دابا خففنا
-
-
-# ---------- SPREAD ----------
-def spread_filter(df):
-
-    spread = abs(df["high"].iloc[-1] - df["low"].iloc[-1])
-    return spread < 5   # كان 3 دابا خففنا
-
-
-# ---------- SWEEP ----------
-def liquidity_sweep(df):
-
-    high_prev = df["high"].iloc[-20:-1].max()
-    low_prev = df["low"].iloc[-20:-1].min()
-
-    last = df.iloc[-1]
-
-    if last["high"] > high_prev:
-        return "SELL"
-
-    if last["low"] < low_prev:
-        return "BUY"
-
-    return None
+    return atr > 1
 
 
 # ---------- MOMENTUM ----------
-def momentum_candle(df):
-
+def momentum(df):
     last = df.iloc[-1]
-
     body = abs(last["close"] - last["open"])
-    candle_range = last["high"] - last["low"]
+    rng = last["high"] - last["low"]
 
-    if candle_range == 0:
+    if rng == 0:
         return False
 
-    strength = body / candle_range
-
-    return strength > 0.5   # كان 0.6
-
-
-# ---------- ORDER BLOCK (اختياري) ----------
-def order_block(df):
-
-    impulse = df.iloc[-2]
-    base = df.iloc[-3]
-
-    if impulse["close"] > impulse["open"]:
-        if base["close"] < base["open"]:
-            return "BUY"
-
-    if impulse["close"] < impulse["open"]:
-        if base["close"] > base["open"]:
-            return "SELL"
-
-    return None
+    return (body / rng) > 0.5
 
 
 # ---------- BUILD SIGNAL ----------
 def build_signal(symbol, direction, price):
 
-    if symbol == "XAU/USD":
-        sl_pips = 8
-        tp_pips = 6
-        digits = 2
+    if symbol == "EUR/USD":
+        sl_dist = 0.002
+        tp_dist = 0.003
     else:
-        sl_pips = 0.0020
-        tp_pips = 0.0015
-        digits = 5
+        sl_dist = 8
+        tp_dist = 6
 
     if direction == "BUY":
-        sl = price - sl_pips
-        tp1 = price + tp_pips
-        tp2 = price + tp_pips * 2
+        sl = price - sl_dist
+        tp = price + tp_dist
     else:
-        sl = price + sl_pips
-        tp1 = price - tp_pips
-        tp2 = price - tp_pips * 2
+        sl = price + sl_dist
+        tp = price - tp_dist
 
     return f"""
 📊 {symbol} – {direction}
 
-Entry: {round(price, digits)}
-SL: {round(sl, digits)}
-
-TP1: {round(tp1, digits)}
-TP2: {round(tp2, digits)}
-
-⚡ Quick Copy:
-{symbol} {direction}
+Entry: {round(price,5)}
+SL: {round(sl,5)}
+TP: {round(tp,5)}
 """
 
 
@@ -158,7 +107,7 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     hour = now.hour
     today = now.date()
 
-    if today_date != today:
+    if today != today_date:
         signals_today = 0
         today_date = today
 
@@ -168,43 +117,31 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     if hour < 7 or hour > 22:
         return
 
-    for symbol in ["XAU/USD", "EUR/USD"]:
+    pairs = ["XAU/USD", "EUR/USD"]
 
-        print(f"Checking: {symbol}")
+    for pair in pairs:
 
-        try:
-            df = get_data(symbol)
-        except:
+        print(f"Checking: {pair}")
+
+        df = get_data(pair)
+
+        if df is None:
             continue
 
         if not atr_filter(df):
             continue
 
-        if not spread_filter(df):
+        if not momentum(df):
             continue
 
         trend = trend_filter(df)
-        sweep = liquidity_sweep(df)
-        momentum = momentum_candle(df)
-        ob = order_block(df)
 
         if trend is None:
             continue
 
-        # ⚡ Balance Logic
-        if sweep is None:
-            continue
-
-        if not momentum:
-            continue
-
-        # ⚡ order block ماشي ضروري
-        if ob and ob != trend:
-            continue
-
         price = df["close"].iloc[-1]
 
-        text = build_signal(symbol, trend, price)
+        text = build_signal(pair, trend, price)
 
         await context.bot.send_message(
             chat_id=VIP_CHANNEL,
@@ -213,9 +150,10 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
         signals_today += 1
 
-        print("Signal sent:", symbol, trend)
+        print("Signal sent:", pair, trend)
 
-        break   # باش مايبعثش بجوج فمرة وحدة
+        if signals_today >= MAX_SIGNALS:
+            break
 
 
 # ---------- BOT ----------
