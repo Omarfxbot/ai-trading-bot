@@ -15,9 +15,9 @@ today_date = datetime.utcnow().date()
 
 
 # ---------- GET DATA ----------
-def get_data(symbol):
+def get_data(symbol, interval="5min"):
 
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=5min&outputsize=200&apikey={TWELVEDATA_API_KEY}"
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize=200&apikey={TWELVEDATA_API_KEY}"
 
     r = requests.get(url)
     data = r.json()
@@ -29,9 +29,7 @@ def get_data(symbol):
     df["low"] = df["low"].astype(float)
     df["close"] = df["close"].astype(float)
 
-    df = df.iloc[::-1]
-
-    return df
+    return df.iloc[::-1]
 
 
 # ---------- TREND ----------
@@ -48,7 +46,7 @@ def trend_filter(df):
     return None
 
 
-# ---------- ATR (SMART) ----------
+# ---------- ATR ----------
 def atr_filter(df):
 
     df["tr"] = df["high"] - df["low"]
@@ -89,12 +87,23 @@ def momentum_candle(df):
     return (body / candle_range) > 0.5
 
 
+# ---------- NEWS FILTER ----------
+def news_filter():
+
+    now = datetime.utcnow()
+    hour = now.hour
+
+    # ⛔ وقت أخبار USD (تقريبي)
+    if hour in [12, 13, 14]:
+        return False
+
+    return True
+
+
 # ---------- BUILD SIGNAL ----------
 def build_signal(symbol, direction, price, df):
 
     atr = (df["high"] - df["low"]).rolling(14).mean().iloc[-1]
-
-    # distance ذكي
     sl_distance = atr * 2
 
     if direction == "BUY":
@@ -102,7 +111,6 @@ def build_signal(symbol, direction, price, df):
         tp1 = price + sl_distance
         tp2 = price + (sl_distance * 2)
         tp3 = price + (sl_distance * 3)
-
     else:
         sl = price + sl_distance
         tp1 = price - sl_distance
@@ -137,6 +145,11 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     if hour < 7 or hour > 22:
         return
 
+    # ⛔ News filter
+    if not news_filter():
+        print("⛔ News time - skip")
+        return
+
     symbols = ["XAU/USD", "EUR/USD"]
 
     for symbol in symbols:
@@ -144,11 +157,21 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         print(f"Checking: {symbol}")
 
         try:
-            df = get_data(symbol)
+            df_m5 = get_data(symbol, "5min")
+            df_m15 = get_data(symbol, "15min")
         except:
             continue
 
-        trend = trend_filter(df)
+        # ---------- MULTI TIMEFRAME ----------
+        trend_m5 = trend_filter(df_m5)
+        trend_m15 = trend_filter(df_m15)
+
+        if trend_m5 != trend_m15:
+            continue
+
+        df = df_m5
+        trend = trend_m5
+
         sweep = liquidity_sweep(df)
         momentum = momentum_candle(df)
 
@@ -196,6 +219,6 @@ app.job_queue.run_repeating(
     first=10
 )
 
-print("🔥 AI BOT PRO STARTED")
+print("🔥 AI BOT PRO (NEWS + MTF) STARTED")
 
 app.run_polling()
