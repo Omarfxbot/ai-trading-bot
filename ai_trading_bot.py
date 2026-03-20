@@ -21,7 +21,7 @@ async def get_data(symbol, interval):
         data = r.json()
 
     df = pd.DataFrame(data["values"])
-    df = df.astype(float)
+    df = df[["open","high","low","close"]].astype(float)
     return df.iloc[::-1]
 
 # ---------- FINNHUB ----------
