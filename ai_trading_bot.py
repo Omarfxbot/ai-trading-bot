@@ -74,22 +74,29 @@ async def run_bot():
                     tp = price - 10
 
                 # ---------- SEND TO MT5 ----------
-                try:
-                    requests.post("https://drawn-unhectically-joetta.ngrok-free.dev", json={
-                        "symbol": symbol,
-                        "direction": t,
-                        "lot": LOT,
-                        "sl": sl,
-                        "tp": tp
-                    })
-                    print(f"✅ Signal sent to MT5: {symbol} {t}")
-                except Exception as e:
-                    print("POST ERROR:", e)
+                def send_to_mt5(symbol, direction, lot, sl, tp):
 
-            except Exception as e:
-                print("ERROR:", e)
+    import requests
 
-        await asyncio.sleep(60)
+    url = "https://xxxx.ngrok-free.dev/trade"  # بدلها بالرابط ديالك
+
+    data = {
+        "symbol": symbol,
+        "direction": direction,
+        "lot": lot,
+        "sl": sl,
+        "tp": tp
+    }
+
+    headers = {
+        "ngrok-skip-browser-warning": "true"
+    }
+
+    try:
+        response = requests.post(url, json=data, headers=headers)
+        print("✅ Sent to MT5:", response.text)
+    except Exception as e:
+        print("❌ ERROR sending to MT5:", e)
 
 # ---------- RUN ----------
 asyncio.run(run_bot())
