@@ -3,7 +3,6 @@ import httpx
 import pandas as pd
 import requests
 import asyncio
-from datetime import datetime
 
 # ---------- API ----------
 TWELVEDATA_API_KEY = os.getenv("TWELVEDATA_API_KEY")
@@ -43,17 +42,39 @@ def trend(df):
     ema200 = df["close"].ewm(200).mean().iloc[-1]
     return "BUY" if ema50 > ema200 else "SELL"
 
+# ---------- STRUCTURE ----------
+def structure_break(df):
+
+    last = df.iloc[-1]
+
+    high_prev = df["high"].iloc[-10:-1].max()
+    low_prev = df["low"].iloc[-10:-1].min()
+
+    if last["close"] > high_prev:
+        return "BUY"
+
+    if last["close"] < low_prev:
+        return "SELL"
+
+    return None
+
+# ---------- SMART ZONE ----------
+def get_smart_zone(df):
+
+    swing_high = df["high"].iloc[-20:-1].max()
+    swing_low = df["low"].iloc[-20:-1].min()
+
+    return swing_high, swing_low
+
 # ---------- SEND TO MT5 ----------
-def send_to_mt5(symbol, direction, lot, sl, tp):
+def send_to_mt5(symbol, direction, lot):
 
     url = "https://drawn-unhectically-joetta.ngrok-free.dev/trade"
 
     data = {
         "symbol": symbol,
         "direction": direction,
-        "lot": lot,
-        "sl": sl,
-        "tp": tp
+        "lot": lot
     }
 
     headers = {
@@ -61,15 +82,15 @@ def send_to_mt5(symbol, direction, lot, sl, tp):
     }
 
     try:
-        response = requests.post(url, json=data, headers=headers)
-        print("✅ Sent to MT5:", response.text)
+        requests.post(url, json=data, headers=headers)
+        print(f"📤 Sent: {symbol} {direction}")
     except Exception as e:
-        print("❌ ERROR sending to MT5:", e)
+        print("ERROR:", e)
 
 # ---------- ENGINE ----------
 async def run_bot():
 
-    print("🚀 AI BOT STARTED")
+    print("🚀 AI PRO BOT STARTED")
 
     while True:
 
@@ -86,20 +107,26 @@ async def run_bot():
                 if abs(price - f_price) > price * 0.002:
                     continue
 
-                t = trend(df)
+                trend_main = trend(df)
+                structure = structure_break(df)
 
-                # ---------- SL / TP ----------
-                if t == "BUY":
-                    sl = price - 5
-                    tp = price + 10
-                else:
-                    sl = price + 5
-                    tp = price - 10
+                # ❌ لازم يتوافقو
+                if trend_main != structure:
+                    continue
+
+                high, low = get_smart_zone(df)
+
+                # ---------- ZONE FILTER ----------
+                if trend_main == "BUY" and price > (low + 5):
+                    continue
+
+                if trend_main == "SELL" and price < (high - 5):
+                    continue
 
                 # ---------- SEND ----------
-                send_to_mt5(symbol, t, LOT, sl, tp)
+                send_to_mt5(symbol, trend_main, LOT)
 
-                print(f"📤 Signal sent: {symbol} {t}")
+                print(f"✅ SIGNAL: {symbol} {trend_main}")
 
             except Exception as e:
                 print("ERROR:", e)
