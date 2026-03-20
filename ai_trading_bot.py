@@ -2,16 +2,18 @@ import os
 import httpx
 import pandas as pd
 from datetime import datetime
-from telegram.ext import ApplicationBuilder, ContextTypes
+import MetaTrader5 as mt5
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# ---------- API ----------
 TWELVEDATA_API_KEY = os.getenv("TWELVEDATA_API_KEY")
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 
-VIP_CHANNEL = "@OmarSwingVIP"
+# ---------- MT5 LOGIN ----------
+mt5.initialize()
+mt5.login(262411967, password="Audio@2204", server="Exness-MT5Trial16")
 
-signals_today = 0
-today_date = datetime.utcnow().date()
+# ---------- SETTINGS ----------
+LOT = 0.01
 
 # ---------- DATA ----------
 async def get_data(symbol, interval):
@@ -45,48 +47,71 @@ def trend(df):
     ema200 = df["close"].ewm(200).mean().iloc[-1]
     return "BUY" if ema50 > ema200 else "SELL"
 
+# ---------- EXECUTION ----------
+def execute_trade(symbol, direction, lot, sl, tp):
+
+    symbol_mt5 = symbol.replace("/", "") + "m"
+    mt5.symbol_select(symbol_mt5, True)
+
+    tick = mt5.symbol_info_tick(symbol_mt5)
+    price = tick.ask if direction == "BUY" else tick.bid
+
+    request = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "symbol": symbol_mt5,
+        "volume": lot,
+        "type": mt5.ORDER_TYPE_BUY if direction=="BUY" else mt5.ORDER_TYPE_SELL,
+        "price": price,
+        "sl": sl,
+        "tp": tp,
+        "deviation": 10,
+        "magic": 123456,
+        "comment": "AI AUTO BOT",
+    }
+
+    mt5.order_send(request)
+
 # ---------- ENGINE ----------
-async def check_signal(context: ContextTypes.DEFAULT_TYPE):
+import asyncio
 
-    print("RUNNING...")
+async def run_bot():
 
-    for symbol in ["XAU/USD", "EUR/USD"]:
+    print("🚀 AI BOT MT5 STARTED")
 
-        try:
-            df = await get_data(symbol, "5min")
-            price = df["close"].iloc[-1]
+    while True:
 
-            # Finnhub confirm
-            f_price = await get_finnhub_price(symbol)
-            if not f_price:
-                continue
+        for symbol in ["XAU/USD","EUR/USD"]:
 
-            if abs(price - f_price) > price * 0.002:
-                continue
+            try:
+                df = await get_data(symbol, "5min")
+                price = df["close"].iloc[-1]
 
-            main_trend = trend(df)
-            f_trend = "BUY" if f_price > df["close"].ewm(50).mean().iloc[-1] else "SELL"
+                f_price = await get_finnhub_price(symbol)
+                if not f_price:
+                    continue
 
-            if main_trend != f_trend:
-                continue
+                if abs(price - f_price) > price * 0.002:
+                    continue
 
-            sl = price - 5 if main_trend == "BUY" else price + 5
-            tp = price + 10 if main_trend == "BUY" else price - 10
+                t = trend(df)
 
-            text = f"{symbol} {main_trend}\nEntry: {price}\nSL: {sl}\nTP: {tp}"
+                # ---------- SL / TP ----------
+                if t == "BUY":
+                    sl = price - 5
+                    tp = price + 10
+                else:
+                    sl = price + 5
+                    tp = price - 10
 
-            await context.bot.send_message(chat_id=VIP_CHANNEL, text=text)
+                # ---------- EXECUTE ----------
+                execute_trade(symbol, t, LOT, sl, tp)
 
-            print("Signal sent:", symbol)
+                print(f"✅ Trade executed: {symbol} {t}")
 
-        except Exception as e:
-            print("ERROR:", e)
+            except Exception as e:
+                print("ERROR:", e)
 
-# ---------- BOT ----------
-app = ApplicationBuilder().token(BOT_TOKEN).build()
+        await asyncio.sleep(60)
 
-app.job_queue.run_repeating(check_signal, interval=60, first=10)
-
-print("BOT STARTED")
-
-app.run_polling()
+# ---------- RUN ----------
+asyncio.run(run_bot())
