@@ -12,14 +12,33 @@ LOT = 0.01
 
 # ---------- DATA ----------
 async def get_data(symbol, interval):
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize=200&apikey={TWELVEDATA_API_KEY}"
-    async with httpx.AsyncClient() as client:
-        r = await client.get(url)
-        data = r.json()
 
-    df = pd.DataFrame(data["values"])
-    df = df[["open","high","low","close"]].astype(float)
-    return df.iloc[::-1]
+    try:
+        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize=200&apikey={TWELVEDATA_API_KEY}"
+
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url)
+            data = r.json()
+
+        # ❌ إذا API ما رجعش data
+        if "values" not in data:
+            print(f"❌ No data for {symbol}: {data}")
+            return None
+
+        df = pd.DataFrame(data["values"])
+
+        # تأكد من الأعمدة
+        if not all(col in df.columns for col in ["open","high","low","close"]):
+            print(f"❌ Missing columns for {symbol}")
+            return None
+
+        df = df[["open","high","low","close"]].astype(float)
+
+        return df.iloc[::-1]
+
+    except Exception as e:
+        print(f"❌ get_data ERROR {symbol}:", e)
+        return None
 
 # ---------- FINNHUB ----------
 async def get_finnhub_price(symbol):
