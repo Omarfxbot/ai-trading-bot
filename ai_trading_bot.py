@@ -2,8 +2,8 @@ import os
 import httpx
 import pandas as pd
 import requests
-from datetime import datetime
 import asyncio
+from datetime import datetime
 
 # ---------- API ----------
 TWELVEDATA_API_KEY = os.getenv("TWELVEDATA_API_KEY")
@@ -43,6 +43,29 @@ def trend(df):
     ema200 = df["close"].ewm(200).mean().iloc[-1]
     return "BUY" if ema50 > ema200 else "SELL"
 
+# ---------- SEND TO MT5 ----------
+def send_to_mt5(symbol, direction, lot, sl, tp):
+
+    url = "https://drawn-unhectically-joetta.ngrok-free.dev/trade"
+
+    data = {
+        "symbol": symbol,
+        "direction": direction,
+        "lot": lot,
+        "sl": sl,
+        "tp": tp
+    }
+
+    headers = {
+        "ngrok-skip-browser-warning": "true"
+    }
+
+    try:
+        response = requests.post(url, json=data, headers=headers)
+        print("✅ Sent to MT5:", response.text)
+    except Exception as e:
+        print("❌ ERROR sending to MT5:", e)
+
 # ---------- ENGINE ----------
 async def run_bot():
 
@@ -73,30 +96,15 @@ async def run_bot():
                     sl = price + 5
                     tp = price - 10
 
-                # ---------- SEND TO MT5 ----------
-                def send_to_mt5(symbol, direction, lot, sl, tp):
+                # ---------- SEND ----------
+                send_to_mt5(symbol, t, LOT, sl, tp)
 
-    import requests
+                print(f"📤 Signal sent: {symbol} {t}")
 
-    url = "https://drawn-unhectically-joetta.ngrok-free.dev"  # بدلها بالرابط ديالك
+            except Exception as e:
+                print("ERROR:", e)
 
-    data = {
-        "symbol": symbol,
-        "direction": direction,
-        "lot": lot,
-        "sl": sl,
-        "tp": tp
-    }
-
-    headers = {
-        "ngrok-skip-browser-warning": "true"
-    }
-
-    try:
-        response = send_to_mt5(symbol, t, LOT, sl, tp)
-        print("✅ Sent to MT5:", response.text)
-    except Exception as e:
-        print("❌ ERROR sending to MT5:", e)
+        await asyncio.sleep(60)
 
 # ---------- RUN ----------
 asyncio.run(run_bot())
