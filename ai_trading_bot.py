@@ -1,5 +1,5 @@
 import os
-import requests
+import httpx
 import pandas as pd
 from datetime import datetime
 from telegram.ext import ApplicationBuilder, ContextTypes
@@ -13,14 +13,17 @@ MAX_SIGNALS = 3
 signals_today = 0
 today_date = datetime.utcnow().date()
 
+# منع تكرار نفس الصفقة
+last_signal = {}
 
 # ---------- GET DATA ----------
-def get_data(symbol, interval="5min"):
+async def get_data(symbol, interval="5min"):
 
     url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize=200&apikey={TWELVEDATA_API_KEY}"
 
-    r = requests.get(url)
-    data = r.json()
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url)
+        data = r.json()
 
     df = pd.DataFrame(data["values"])
 
@@ -84,16 +87,14 @@ def momentum_candle(df):
     if candle_range == 0:
         return False
 
-    return (body / candle_range) > 0.5
+    return (body / candle_range) > 0.6  # رفعنا الجودة
 
 
 # ---------- NEWS FILTER ----------
 def news_filter():
 
-    now = datetime.utcnow()
-    hour = now.hour
+    hour = datetime.utcnow().hour
 
-    # ⛔ وقت أخبار USD (تقريبي)
     if hour in [12, 13, 14]:
         return False
 
@@ -104,7 +105,9 @@ def news_filter():
 def build_signal(symbol, direction, price, df):
 
     atr = (df["high"] - df["low"]).rolling(14).mean().iloc[-1]
-    sl_distance = atr * 2
+
+    # 🔥 SL أذكى (أقل)
+    sl_distance = atr * 1.5
 
     if direction == "BUY":
         sl = price - sl_distance
@@ -120,6 +123,7 @@ def build_signal(symbol, direction, price, df):
     symbol = symbol.replace("/", "")
 
     return f"""{symbol} {direction}
+Entry: {round(price,5)}
 SL: {round(sl,5)}
 TP1: {round(tp1,5)}
 TP2: {round(tp2,5)}
@@ -129,10 +133,11 @@ TP3: {round(tp3,5)}"""
 # ---------- ENGINE ----------
 async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
-    global signals_today, today_date
+    global signals_today, today_date, last_signal
+
+    print("🔄 RUNNING CHECK...")
 
     now = datetime.utcnow()
-    hour = now.hour
     today = now.date()
 
     if today_date != today:
@@ -142,12 +147,11 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
     if signals_today >= MAX_SIGNALS:
         return
 
-    if hour < 7 or hour > 22:
+    if now.hour < 7 or now.hour > 22:
         return
 
-    # ⛔ News filter
     if not news_filter():
-        print("⛔ News time - skip")
+        print("⛔ News time")
         return
 
     symbols = ["XAU/USD", "EUR/USD"]
@@ -157,36 +161,32 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
         print(f"Checking: {symbol}")
 
         try:
-            df_m5 = get_data(symbol, "5min")
-            df_m15 = get_data(symbol, "15min")
-        except:
+            df_m5 = await get_data(symbol, "5min")
+            df_m15 = await get_data(symbol, "15min")
+        except Exception as e:
+            print("ERROR:", symbol, e)
             continue
 
-        # ---------- MULTI TIMEFRAME ----------
         trend_m5 = trend_filter(df_m5)
         trend_m15 = trend_filter(df_m15)
 
         if trend_m5 != trend_m15:
             continue
 
-        df = df_m5
         trend = trend_m5
+        df = df_m5
 
         sweep = liquidity_sweep(df)
         momentum = momentum_candle(df)
 
-        # ---------- SCORING ----------
         score = 0
 
         if trend:
             score += 2
-
         if sweep == trend:
             score += 2
-
         if momentum:
             score += 1
-
         if atr_filter(df):
             score += 1
 
@@ -195,16 +195,27 @@ async def check_signal(context: ContextTypes.DEFAULT_TYPE):
 
         price = df["close"].iloc[-1]
 
+        # ❌ منع التكرار
+        key = f"{symbol}_{trend}"
+        if last_signal.get(key) == today:
+            print("Duplicate skipped")
+            continue
+
         text = build_signal(symbol, trend, price, df)
 
-        await context.bot.send_message(
-            chat_id=VIP_CHANNEL,
-            text=text
-        )
+        try:
+            await context.bot.send_message(
+                chat_id=VIP_CHANNEL,
+                text=text
+            )
+        except Exception as e:
+            print("TELEGRAM ERROR:", e)
+            continue
 
+        last_signal[key] = today
         signals_today += 1
 
-        print("Signal sent:", symbol, trend)
+        print("✅ Signal sent:", symbol, trend)
 
         if signals_today >= MAX_SIGNALS:
             break
@@ -215,10 +226,10 @@ app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.job_queue.run_repeating(
     check_signal,
-    interval=300,
+    interval=60,   # 🔥 أسرع
     first=10
 )
 
-print("🔥 AI BOT PRO (NEWS + MTF) STARTED")
+print("🔥 AI BOT PRO V2 STARTED")
 
 app.run_polling()
