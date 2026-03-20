@@ -95,7 +95,7 @@ async def run_bot():
     while True:
 
         for symbol in ["XAU/USD","EUR/USD"]:
-
+            print(f"🔍 Checking: {symbol}")
             try:
                 df = await get_data(symbol, "5min")
                 price = df["close"].iloc[-1]
