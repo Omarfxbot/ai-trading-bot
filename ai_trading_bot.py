@@ -1,18 +1,14 @@
 import os
 import httpx
 import pandas as pd
+import requests
 from datetime import datetime
-import MetaTrader5 as mt5
+import asyncio
 
 # ---------- API ----------
 TWELVEDATA_API_KEY = os.getenv("TWELVEDATA_API_KEY")
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 
-# ---------- MT5 LOGIN ----------
-mt5.initialize()
-mt5.login(262411967, password="Audio@2204", server="Exness-MT5Trial16")
-
-# ---------- SETTINGS ----------
 LOT = 0.01
 
 # ---------- DATA ----------
@@ -47,36 +43,10 @@ def trend(df):
     ema200 = df["close"].ewm(200).mean().iloc[-1]
     return "BUY" if ema50 > ema200 else "SELL"
 
-# ---------- EXECUTION ----------
-def execute_trade(symbol, direction, lot, sl, tp):
-
-    symbol_mt5 = symbol.replace("/", "") + "m"
-    mt5.symbol_select(symbol_mt5, True)
-
-    tick = mt5.symbol_info_tick(symbol_mt5)
-    price = tick.ask if direction == "BUY" else tick.bid
-
-    request = {
-        "action": mt5.TRADE_ACTION_DEAL,
-        "symbol": symbol_mt5,
-        "volume": lot,
-        "type": mt5.ORDER_TYPE_BUY if direction=="BUY" else mt5.ORDER_TYPE_SELL,
-        "price": price,
-        "sl": sl,
-        "tp": tp,
-        "deviation": 10,
-        "magic": 123456,
-        "comment": "AI AUTO BOT",
-    }
-
-    mt5.order_send(request)
-
 # ---------- ENGINE ----------
-import asyncio
-
 async def run_bot():
 
-    print("🚀 AI BOT MT5 STARTED")
+    print("🚀 AI BOT STARTED")
 
     while True:
 
@@ -103,10 +73,18 @@ async def run_bot():
                     sl = price + 5
                     tp = price - 10
 
-                # ---------- EXECUTE ----------
-                execute_trade(symbol, t, LOT, sl, tp)
-
-                print(f"✅ Trade executed: {symbol} {t}")
+                # ---------- SEND TO MT5 ----------
+                try:
+                    requests.post("https://drawn-unhectically-joetta.ngrok-free.dev", json={
+                        "symbol": symbol,
+                        "direction": t,
+                        "lot": LOT,
+                        "sl": sl,
+                        "tp": tp
+                    })
+                    print(f"✅ Signal sent to MT5: {symbol} {t}")
+                except Exception as e:
+                    print("POST ERROR:", e)
 
             except Exception as e:
                 print("ERROR:", e)
