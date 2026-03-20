@@ -78,7 +78,7 @@ async def run_bot():
 
     import requests
 
-    url = "https://xxxx.ngrok-free.dev/trade"  # بدلها بالرابط ديالك
+    url = "https://drawn-unhectically-joetta.ngrok-free.dev"  # بدلها بالرابط ديالك
 
     data = {
         "symbol": symbol,
@@ -93,7 +93,7 @@ async def run_bot():
     }
 
     try:
-        response = requests.post(url, json=data, headers=headers)
+        response = send_to_mt5(symbol, t, LOT, sl, tp)
         print("✅ Sent to MT5:", response.text)
     except Exception as e:
         print("❌ ERROR sending to MT5:", e)
